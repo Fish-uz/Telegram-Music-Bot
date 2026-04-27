@@ -1,0 +1,34 @@
+# Entorno Virtual
+venv/
+env/
+ENV/
+
+# Archivos de configuración sensible
+.env
+cookies.txt
+*.session
+config.json
+
+# Base de datos local (¡CRITICAL! No subir datos de usuarios)
+database/*.db
+
+# Archivos temporales de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs y Archivos de Actividad
+*.log
+logs/
+
+# Carpeta de descargas y archivos multimedia
+downloads/
+*.mp3
+*.m4a
+*.webm
+*.jpg
+*.jpeg
+*.png
+
+# Docker (Archivos generados localmente)
+.dockerignore
