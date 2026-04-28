@@ -83,6 +83,7 @@ class MusicDownloader:
         """
         return {
             'format': 'bestaudio/best',
+            'cookiefile': 'cookies.txt',
             'outtmpl': f'{self.download_dir}/{out_prefix}_%(id)s.%(ext)s',
             'quiet': True,
             'no_warnings': True,
