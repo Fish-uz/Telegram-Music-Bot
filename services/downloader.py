@@ -45,7 +45,7 @@ class MusicDownloader:
         """
         # Lista de métodos a intentar en orden de prioridad
         methods = [
-            # (self._sync_download_youtube, url),      # Prioridad 1: Enlace directo o búsqueda en YT
+            (self._sync_download_youtube, url),      # Prioridad 1: Enlace directo o búsqueda en YT
             (self._sync_download_soundcloud, query), # Prioridad 2: Respaldo en SoundCloud
             (self._sync_download_bandcamp, query),   # Prioridad 3: Respaldo en Bandcamp
         ]
