@@ -314,7 +314,7 @@ async def process_download(client, message, video_id, user_id):
         cached_data = db.get_cached_file(video_id)
         if cached_data:
             file_id, title = cached_data
-            logger.info(f"Caché HIT: Enviando {video_id} instantáneamente (User {user_id})")
+            logger.info(f"Cache HIT: Enviando {video_id} instantáneamente (User {user_id})")
             await client.edit_message_text(message.chat.id, message.id, "⚡ **¡Encontrado!...**")
             await client.send_audio(message.chat.id, audio=file_id, caption=f"🎵 {title}", 
                                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🗑 Eliminar", callback_data="del_audio")]]))
@@ -325,7 +325,16 @@ async def process_download(client, message, video_id, user_id):
         # 2. Descarga de YouTube
         logger.info(f"Caché MISS: Descargando {video_id} desde YouTube (User {user_id})")
         await client.edit_message_text(message.chat.id, message.id, "⏳ **Iniciando descarga...**")
-        file_path, title = await engine.download(f"https://www.youtube.com/watch?v={video_id}", video_id)
+
+        query_fallback = video_id # Valor por defecto
+        if user_id in user_results:
+            # Buscamos el título real de la canción en los resultados que guardamos antes
+            for song in user_results[user_id]["results"]:
+                if song['id'] == video_id:
+                    query_fallback = song['title']
+                    break
+
+        file_path, title = await engine.download(f"https://www.youtube.com/watch?v={video_id}", query_fallback)
         
         # 3. Preparación y Subida
         await client.edit_message_text(message.chat.id, message.id, "📤 **Subiendo a Telegram...**")
