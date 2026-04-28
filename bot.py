@@ -23,7 +23,7 @@ app = Client(
 
 # Instancias de servicios globales
 db = DatabaseManager()
-engine = MusicDownloader(Config.DOWNLOAD_DIR, Config.COOKIES_FILE)
+engine = MusicDownloader(Config.DOWNLOAD_DIR, Config.cookies.txt)
 searcher = MusicSearcher() 
 
 # Almacenamiento temporal de resultados de búsqueda por usuario

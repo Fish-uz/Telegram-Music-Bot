@@ -1,6 +1,7 @@
 import logging
 import os
 from bot import app
+from services.downloader import MusicDownloader
 from core.logger import setup_logging
 
 def start_bot():
@@ -15,6 +16,11 @@ def start_bot():
     else:
         print("⚠️ Advertencia: No se encontró la variable YOUTUBE_COOKIES. Algunas descargas podrían fallar.")
 
+    engine = MusicDownloader(
+        download_dir="downloads", 
+        cookies_path="cookies.txt"  # <--- Esto es lo que recibirá self.cookies_path
+    )
+    
     # 2. Inicializamos el sistema de logs profesional
     logger = setup_logging()
     log = logging.getLogger(__name__)

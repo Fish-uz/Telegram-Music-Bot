@@ -82,12 +82,16 @@ class MusicDownloader:
             out_prefix (str): Prefijo para identificar la fuente (yt, sc, bc).
         """
         return {
-            'format': 'ba/b',
-            'cookiefile': 'cookies.txt',
+            # 1. Calidad y Formato
+            'format': 'bestaudio/best',
             'outtmpl': f'{self.download_dir}/{out_prefix}_%(id)s.%(ext)s',
-            'quiet': True,
-            'no_warnings': True,
+            
+            # 2. Autenticación y Red (Vital para Railway)
+            'cookiefile': self.cookies_path,
+            'source_address': '0.0.0.0', 
             'nocheckcertificate': True,
+            
+            # 3. Post-procesamiento (Audio + Carátula)
             'postprocessors': [
                 {
                     'key': 'FFmpegExtractAudio',
@@ -95,9 +99,16 @@ class MusicDownloader:
                     'preferredquality': '192',
                 },
                 {
-                    'key': 'EmbedThumbnail', # Incrusta la carátula en los metadatos del MP3
+                    'key': 'EmbedThumbnail', 
                 } 
             ],
+            
+            # 4. Limpieza de Logs y Errores
+            'quiet': True,
+            'no_warnings': True,
+            'ignoreerrors': False,
+            'logtostderr': False,
+            'default_search': 'auto',
         }
 
     def _sync_download_youtube(self, url_or_query: str) -> Tuple[str, str]:

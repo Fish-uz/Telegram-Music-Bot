@@ -11,7 +11,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 # 5. Instalamos las librerías de Python
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt 
 
 # 6. Copiamos el resto del código del bot
 COPY . .
