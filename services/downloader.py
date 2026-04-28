@@ -82,7 +82,7 @@ class MusicDownloader:
             out_prefix (str): Prefijo para identificar la fuente (yt, sc, bc).
         """
         return {
-            'format': 'bestaudio/best',
+            'format': 'ba/b',
             'cookiefile': 'cookies.txt',
             'outtmpl': f'{self.download_dir}/{out_prefix}_%(id)s.%(ext)s',
             'quiet': True,
