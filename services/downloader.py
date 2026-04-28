@@ -90,6 +90,7 @@ class MusicDownloader:
             'cookiefile': self.cookies_path,
             'source_address': '0.0.0.0', 
             'nocheckcertificate': True,
+            'ffmpeg_location': '/usr/bin/ffmpeg',
             
             # 3. Post-procesamiento (Audio + Carátula)
             'postprocessors': [
