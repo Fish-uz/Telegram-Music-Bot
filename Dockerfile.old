@@ -1,4 +1,6 @@
 # Cambia la primera línea por esta (es un poco más pesada pero trae TODO lo necesario)
+
+
 FROM python:3.10
 
 # Actualiza e instala explícitamente
