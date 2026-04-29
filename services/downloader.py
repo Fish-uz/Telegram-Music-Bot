@@ -7,6 +7,7 @@ import os
 import asyncio
 import yt_dlp
 import logging
+import shutil
 from typing import Tuple
 
 class MusicDownloader:
@@ -75,12 +76,14 @@ class MusicDownloader:
     # --- MÉTODOS PRIVADOS (LÓGICA SÍNCRONA DE YT-DLP) ---
 
     def _get_common_opts(self, out_prefix: str) -> dict:
-        """
-        Configura las opciones base para yt-dlp compartidas entre plataformas.
         
-        Args:
-            out_prefix (str): Prefijo para identificar la fuente (yt, sc, bc).
-        """
+        ffmpeg_bin = shutil.which("ffmpeg")
+        
+        if ffmpeg_bin is None:
+            self.logger.error("FFmpeg NO ha sido encontrado en el sistema.")
+        else:
+            self.logger.debug(f"FFmpeg encontrado en: {ffmpeg_bin}")
+        
         return {
             # 1. Calidad y Formato
             'format': 'bestaudio/best',
@@ -90,7 +93,7 @@ class MusicDownloader:
             'cookiefile': self.cookies_path,
             'source_address': '0.0.0.0', 
             'nocheckcertificate': True,
-            'ffmpeg_location': 'ffmpeg',
+            'ffmpeg_location': ffmpeg_bin,
             
             # 3. Post-procesamiento (Audio + Carátula)
             'postprocessors': [
