@@ -61,12 +61,10 @@ async def help_command(client, message):
     await message.reply_text(text)
 
 async def soporte_command(client, message):
-    """Envía reportes o propuestas de publicidad directamente al dueño del bot."""
     user_id = message.from_user.id
     if db.is_user_banned(user_id): return
-
     if len(message.command) < 2:
-        return await message.reply_text("📩 **Modo de uso:** `/soporte [Tu duda, reporte o mensaje de publicidad aquí]`")
+        return await message.reply_text("📩 **Modo de uso:** `/soporte [Tu mensaje aquí]`")
 
     mensaje_usuario = message.text.split(None, 1)[1]
     username = f" (@{message.from_user.username})" if message.from_user.username else ""
@@ -83,7 +81,7 @@ async def soporte_command(client, message):
         await message.reply_text("✅ **Tu mensaje ha sido enviado al administrador.**")
     except Exception as e:
         logger.error(f"Error en soporte: {e}")
-        await message.reply_text("❌ No se pudo enviar el mensaje en este momento.")
+        await message.reply_text("❌ No se pudo enviar el mensaje.")
 
 async def playlist_download(client, message):
     user_id = message.from_user.id
@@ -111,26 +109,16 @@ async def handle_message(client, message):
 
     status_msg = await message.reply_text("🔎 Buscando...")
     try:
-        # 1. Resultados directos y puros de YouTube (Sin tocar la caché)
         results = await searcher.search(query)
-        
         if not results:
             await status_msg.edit("❌ No se encontraron resultados.")
             return
 
-        # 2. Guardamos la sesión del usuario tal cual viene de la API
-        user_results[user_id] = {
-            "query": query, 
-            "results": results, 
-            "filter": "title", 
-            "lossless": False
-        }
-        
+        user_results[user_id] = {"query": query, "results": results, "filter": "title", "lossless": False}
         await status_msg.delete()
         await send_search_results(message, query, results, page=1, user_id=user_id)
-        
     except Exception as e:
-        logger.error(f"Error en búsqueda directa de YouTube: {e}")
+        logger.error(f"Error en búsqueda directa: {e}")
         await status_msg.edit(f"❌ Error en búsqueda.")
 
 def init_users_handlers(app_instance, shared_db, shared_searcher, shared_results, fn_send, fn_dl):

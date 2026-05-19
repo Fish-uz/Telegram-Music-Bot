@@ -1,8 +1,6 @@
-import logging
 import asyncio
 from pyrogram import Client
 
-logger = logging.getLogger(__name__)
 db = None
 user_results = None
 edit_search_results = None

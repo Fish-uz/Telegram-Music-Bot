@@ -7,7 +7,6 @@ logger = logging.getLogger(__name__)
 db = None
 
 async def admin_panel(client, message):
-    """Muestra el panel de control interactivo con estadísticas reales."""
     if message.from_user.id != Config.OWNER_ID: return
     
     logger.info("📊 Admin solicitó el Dashboard Estadístico.")
@@ -44,9 +43,7 @@ async def admin_panel(client, message):
     await message.reply_text(dashboard_text)
 
 async def broadcast_command(client, message):
-    """Envía un anuncio masivo con pausas cada 3 mensajes para evitar el baneo de Telegram."""
     if message.from_user.id != Config.OWNER_ID: return
-
     if len(message.command) < 2:
         return await message.reply_text("📢 **Modo de uso:** `/broadcast [Tu mensaje aquí]`")
 
@@ -74,9 +71,7 @@ async def broadcast_command(client, message):
             exitosos += 1
         except Exception as e:
             fallidos += 1
-            logger.debug(f"No se pudo enviar broadcast a ID {target_id}: {e}")
 
-        # Control Anti-Spam estricto: Pausa de 1 segundo cada 3 envíos
         if (exitosos + fallidos) % 3 == 0:
             await asyncio.sleep(1)
 
@@ -119,7 +114,6 @@ async def unban_user(client, message):
 def init_admin_handlers(app_instance, shared_db):
     global db
     db = shared_db
-    
     app_instance.on_message(filters.command("admin") & filters.private, group=-1)(admin_panel)
     app_instance.on_message(filters.command("broadcast") & filters.private, group=-1)(broadcast_command)
     app_instance.on_message(filters.command("banlist") & filters.private, group=-1)(show_banlist)

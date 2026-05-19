@@ -1,6 +1,5 @@
 import asyncio
 import os
-import logging
 from pyrogram import Client
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -9,11 +8,13 @@ from services.downloader import MusicDownloader
 from services.searcher import MusicSearcher  
 from database.manager import DatabaseManager
 
+# IMPORTACIÓN DESDE TU CARPETA CORE (Ajusta el nombre si se llama diferente)
+from core.logger import logger
+
+# Conectamos los módulos de handlers
 from handlers.admin import init_admin_handlers
 from handlers.users import init_users_handlers
 from handlers.callbacks import init_callbacks_handlers
-
-logger = logging.getLogger(__name__)
 
 app = Client(
     "music_session",
@@ -27,12 +28,12 @@ engine = MusicDownloader(Config.DOWNLOAD_DIR, "cookies.txt")
 searcher = MusicSearcher() 
 user_results = {}
 
-# --- COPIADO LOCAL: ENTORNO VIGILANTE DE CARPETAS (FolderWatcher) ---
+# --- INGESTOR DE CARPETAS MASIVO (FolderWatcher) ---
 TXT_DIR = "downloads/archivostxt"
-BACKUP_CHAT_ID = -1003950302665  # Tu grupo asignado
+BACKUP_CHAT_ID = -1003950302665  # Tu chat de respaldo asignado
 
 async def watch_folder_loop():
-    """Servicio nativo en segundo plano para procesar archivos .txt masivos sin colgar el chat."""
+    """Busca archivos .txt en downloads/archivostxt y los descarga automáticamente."""
     if not os.path.exists(TXT_DIR):
         os.makedirs(TXT_DIR, exist_ok=True)
         
@@ -41,7 +42,7 @@ async def watch_folder_loop():
             for file_name in os.listdir(TXT_DIR):
                 if file_name.endswith(".txt"):
                     file_path = os.path.join(TXT_DIR, file_name)
-                    logger.info(f"📁 FolderWatcher detectó un archivo masivo: {file_name}")
+                    logger.info(f"Archivo masivo detectado en ruta: {file_name}")
                     
                     with open(file_path, "r", encoding="utf-8") as f:
                         lines = f.readlines()
@@ -50,37 +51,37 @@ async def watch_folder_loop():
                         query = line.strip()
                         if not query: continue
                         
+                        logger.info(f"Procesando línea de texto: '{query}'")
                         try:
-                            # Buscar y descargar directo al canal de respaldo
+                            # Buscamos en YouTube para obtener los metadatos correctos
                             results = await searcher.search(query)
                             if results:
                                 video_id = results[0]['id']
-                                title = results[0]['title']
                                 
-                                # Simulamos estructura mínima para process_download
+                                # Simulación de mensaje para desviar al grupo de respaldo
                                 class FakeMessage:
                                     def __init__(self):
                                         class FakeChat: id = BACKUP_CHAT_ID
                                         self.chat = FakeChat()
                                         self.id = 0
-                                    async def reply_text(self, text, *args, **kwargs):
-                                        return self
-                                    async def edit_text(self, text, *args, **kwargs):
-                                        return self
                                 
-                                # Ejecutar proceso nativo directo al chat de respaldo
                                 fake_msg = FakeMessage()
+                                # Procesamos la descarga de forma segura
                                 await process_download(app, fake_msg, video_id, Config.OWNER_ID)
+                            else:
+                                logger.warning(f"No se encontraron resultados en YouTube para: '{query}'")
                         except Exception as inner_e:
-                            logger.error(f"Error procesando línea '{query}' del TXT: {inner_e}")
-                        await asyncio.sleep(3) # Pausa preventiva por cada canción
+                            # Si process_download o la búsqueda fallan, se captura aquí de forma limpia
+                            logger.error(f"No se pudo procesar la pista '{query}'. Razón: {inner_e}")
+                        
+                        await asyncio.sleep(3) # Pausa preventiva anti-bloqueos
                         
                     os.remove(file_path)
-                    logger.info(f"✅ Archivo masivo {file_name} procesado y eliminado.")
+                    logger.info(f"[ OK ] Archivo masivo {file_name} eliminado tras ser procesado.")
         except Exception as e:
-            logger.error(f"Error en bucle del vigilante FolderWatcher: {e}")
+            logger.error(f"Error crítico en el bucle FolderWatcher: {e}")
             
-        await asyncio.sleep(5) # Verifica la carpeta cada 5 segundos
+        await asyncio.sleep(5)
 
 # --- INTERFACES VISUALES ---
 
@@ -120,29 +121,26 @@ async def edit_search_results(message, query, results, page=1, user_id=None):
 # --- PROCESADOR DE DESCARGAS ---
 
 async def process_download(client, message, video_id, user_id):
+    status = None
     try:
+        # 1. Comprobación en la Base de Datos (Caché)
         cached_data = db.get_cached_file(video_id)
         if cached_data:
             file_id, title = cached_data
-            
-            # Avisamos que se encontró pero NO alteramos ni borramos el panel de búsqueda
             if message.id != 0:
-                status = await client.send_message(message.chat.id, "⚡ **¡Encontrado en la nube! Enviando...**")
+                status = await client.send_message(message.chat.id, "⚡ **¡Encontrado en caché! Enviando...**")
             
             await client.send_audio(
                 message.chat.id, audio=file_id, caption=f"🎵 {title}", 
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🗑 Eliminar", callback_data="del_audio")]])
             )
             db.register_download(user_id, "User", video_id, title)
-            
-            if message.id != 0:
-                await status.delete()
+            if message.id != 0 and status: await status.delete()
             return
 
-        # Si no está en caché, avisamos al usuario con un mensaje temporal separado
-        status = None
+        # 2. Descarga regular de YouTube
         if message.id != 0:
-            status = await client.send_message(message.chat.id, "⏳ **Iniciando descarga desde YouTube...**")
+            status = await client.send_message(message.chat.id, "⏳ **Iniciando descarga...**")
 
         query_fallback = video_id
         if user_id in user_results:
@@ -151,10 +149,10 @@ async def process_download(client, message, video_id, user_id):
                     query_fallback = song['title']
                     break
 
+        # Aquí es donde ytdlp puede fallar si el video fue borrado o es privado
         file_path, title = await engine.download(f"https://www.youtube.com/watch?v={video_id}", query_fallback)
         
-        if status:
-            await status.edit_text("📤 **Subiendo archivo a Telegram...**")
+        if status: await status.edit_text("📤 **Subiendo a Telegram...**")
             
         thumb_path = file_path.rsplit('.', 1)[0] + ".jpg"
         actual_thumb = thumb_path if os.path.exists(thumb_path) else None
@@ -167,47 +165,39 @@ async def process_download(client, message, video_id, user_id):
         db.register_download(user_id, "User", video_id, title)
         db.add_to_cache(video_id, sent_audio.audio.file_id, title)
         
-        # Limpiamos únicamente el mensaje de estado ("Subiendo...") 
-        if status:
-            await status.delete()
-            
+        if status: await status.delete()
         if os.path.exists(file_path): os.remove(file_path)
         if actual_thumb and os.path.exists(actual_thumb): os.remove(actual_thumb)
             
-        # --- TEMPORIZADOR DE AUTO-LIMPIEZA (2 HORAS) ---
-        # Si es una interacción real de usuario, programamos la eliminación automática del panel para dentro de 2 horas.
+        # Temporizador para que el panel dure 2 horas flotando activo
         if message.id != 0:
             async def auto_delete_panel(msg_to_delete, uid):
-                await asyncio.sleep(7200) # 2 horas en segundos
+                await asyncio.sleep(7200)
                 try:
                     await msg_to_delete.delete()
                     user_results.pop(uid, None)
-                    logger.info(f"⏰ Panel de búsqueda eliminado automáticamente tras 2 horas de inactividad (User {uid}).")
-                except Exception:
-                    pass # Si el usuario ya lo había borrado manualmente, ignoramos el error
+                except Exception: pass
 
             asyncio.create_task(auto_delete_panel(message, user_id))
             
     except Exception as e:
-        logger.error(f"Fallo en descarga {video_id}: {str(e)}", exc_info=True)
-        if status:
-            await status.edit_text(f"❌ **Error en la descarga.**")
+        # Si ocurre un error, avisamos al usuario (si es chat directo) de forma amigable
+        if message.id != 0 and status: 
+            await status.edit_text(f"❌ **Esta pista no está disponible o no se pudo descargar.**")
+        
+        # Limpiamos el mensaje de error de la terminal: extraemos solo el texto relevante omitiendo el "Traceback"
+        error_msg = str(e).split('\n')[-1]
+        raise Exception(f"Video no disponible / Error en motor de descarga ({error_msg})")
 
-# --- CONEXIÓN DE MANEJAdores ---
+# --- CONEXIÓN DE MANEJADORES ---
 init_admin_handlers(app, db)
 init_users_handlers(app, db, searcher, user_results, send_search_results, process_download)
 init_callbacks_handlers(app, db, user_results, edit_search_results, process_download)
 
 async def main():
-    # Iniciamos el Bot de Telegram de Pyrogram
     await app.start()
-    logger.info("🚀 Bot activo.")
-    print("🚀 Bot iniciado exitosamente...")
-    
-    # Encendemos el Vigilante de Carpetas locales en paralelo de forma asíncrona segura
+    logger.info("[ OK ] Bot iniciado exitosamente...")
     asyncio.create_task(watch_folder_loop())
-    
-    # Mantenemos vivo el hilo principal
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
