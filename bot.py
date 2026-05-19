@@ -105,6 +105,12 @@ def create_search_keyboard(results, page, user_id):
     for song in current_results:
         keyboard.append([InlineKeyboardButton(f"🎵 {song['title']}", callback_data=f"dl_{song['id']}")])
 
+    # Botones de ordenamiento y filtrado que activarán tu lógica en callbacks.py
+    keyboard.append([
+        InlineKeyboardButton("❓ Lossless", callback_data="toggle_lossless"),
+        InlineKeyboardButton("🎵 Title", callback_data="toggle_filter")
+    ])
+
     keyboard.append([
         InlineKeyboardButton("⬅️ Ant.", callback_data=f"pg_{page-1}"),
         InlineKeyboardButton("❌ Cancelar", callback_data="close_search"),
@@ -151,7 +157,7 @@ async def process_download(client, message, video_id, user_id):
             await asyncio.sleep(0.7)
             await status.edit_text(f"📥 **Descargando Audio** ({make_progress_bar(40)}) 40%")
             await asyncio.sleep(0.7)
-            await status.edit_text(f"📥 **Procesando frecuencias de Audio** ({make_progress_bar(75)}) 75%")
+            await status.edit_text(f"📥**Procesando frecuencias de Audio** ({make_progress_bar(75)})75%")
 
         file_path, title = await engine.download(f"https://www.youtube.com/watch?v={video_id}", query_fallback)
         
@@ -163,7 +169,12 @@ async def process_download(client, message, video_id, user_id):
 
         sent_audio = await client.send_audio(
             chat_id=message.chat.id, audio=file_path, thumb=actual_thumb, title=title, caption=f"🎵 {title}",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🗑 Eliminar", callback_data="del_audio")]])
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("🔄 Compartir con amigos", switch_inline_query=f"{title}"),
+                    InlineKeyboardButton("🗑 Eliminar", callback_data="del_audio")
+                ]
+            ])
         )
 
         db.register_download(user_id, "User", video_id, title)

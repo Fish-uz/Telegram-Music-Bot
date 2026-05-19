@@ -142,3 +142,22 @@ class DatabaseManager:
         action = "BANEADO" if status else "DESBANEADO"
         self.logger.warning(f"ADMIN: Usuario {user_id} ha sido {action}")
         return cursor.rowcount > 0
+    
+    def get_total_users(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users")
+        return cursor.fetchone()[0]
+
+    def get_total_downloads(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT SUM(total_downloads) FROM users")
+        return cursor.fetchone()[0] or 0
+
+    def get_total_banned(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users WHERE is_banned = 1")
+        return cursor.fetchone()[0]
+
+    def get_failed_downloads(self):
+        # Esta función retorna 0 si no tienes una tabla de errores específica.
+        return 0
