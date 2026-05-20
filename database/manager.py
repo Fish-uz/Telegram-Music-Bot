@@ -90,6 +90,15 @@ class DatabaseManager:
 
     # --- REGISTRO Y ESTADÍSTICAS ---
 
+    def register_user(self, user_id):
+        """Registra a un nuevo usuario en la base de datos si no existe."""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT OR IGNORE INTO users (user_id, total_downloads, is_banned) 
+            VALUES (?, 0, 0)
+        ''', (user_id,))
+        self.conn.commit()
+
     def register_download(self, user_id, username, video_id, title):
         """Registra la descarga, actualiza perfil de usuario e incrementa contadores."""
         cursor = self.conn.cursor()

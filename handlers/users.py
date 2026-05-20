@@ -128,8 +128,11 @@ async def playlist_download(client, message):
 
 async def handle_message(client, message):
     user_id = message.from_user.id
+    username = message.from_user.username or "SinNick" # Captura el nick o pone un valor por defecto
     query = message.text
     if db.is_user_banned(user_id): return
+
+    logger.info(f"🔎 Búsqueda de '{query}' realizada por Usuario: {message.from_user.first_name} ID: {user_id} | (@{username})")
 
     # --- ALGORITMO ANTI-FLOOD CON AUTO-BANEO (3 OPORTUNIDADES) ---
     now = time.time()
@@ -162,6 +165,9 @@ async def handle_message(client, message):
         results = await searcher.search(query)
         if not results:
             await status_msg.edit("❌ No se encontraron resultados.")
+
+            logger.warning(f"❌ Búsqueda fallida: '{query}' por {message.from_user.first_name} (@{username}) | ID: {user_id}")
+            
             # NOTIFICACIÓN DE FALLO AL ADMIN
             await client.send_message(
                 chat_id=Config.OWNER_ID,
