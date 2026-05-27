@@ -11,6 +11,7 @@ from services.downloader import MusicDownloader
 from services.searcher import MusicSearcher  
 from database.manager import DatabaseManager
 from core.logger import logger
+from aiohttp import web
 
 from handlers.admin import init_admin_handlers
 from handlers.users import init_users_handlers
@@ -125,7 +126,17 @@ async def send_search_results(message, query, results, page=1, user_id=None):
 async def edit_search_results(message, query, results, page=1, user_id=None):
     if page < 1 or (page - 1) * 5 >= len(results): return
     markup = create_search_keyboard(results, page, user_id)
-    await message.edit_text(f"🔎 Resultados para: **{query}**\n📄 Página {page}", reply_markup=markup)
+
+    try:
+        await message.edit_text(f"🔎 Resultados para: **{query}**\n📄 Página {page}", reply_markup=markup)
+    
+    except Exception as e:
+        # Si el error es justamente que el mensaje no cambió, no hacemos nada
+        if "MESSAGE_NOT_MODIFIED" in str(e):
+            return
+        # Si es otro error diferente, sí lo registramos en los logs
+        else:
+            logger.error(f"Error editando resultados: {e}")
 
 # --- PROCESADOR DE DESCARGA CON NUEVO DISEÑO DE BARRA ---
 async def process_download(client, message, video_id, user_id):
@@ -202,9 +213,30 @@ init_admin_handlers(app, db)
 init_users_handlers(app, db, searcher, user_results, send_search_results, process_download)
 init_callbacks_handlers(app, db, user_results, edit_search_results, process_download)
 
+# Dashboard básico que lee de tu base de datos
+async def dashboard_handler(request):
+    total_users = db.get_total_users()
+    total_downloads = db.get_total_downloads()
+    return web.Response(
+        text=f"📊 ESTADÍSTICAS DEL BOT\n\nUsuarios totales: {total_users}\nDescargas totales: {total_downloads}",
+        content_type='text/plain'
+    )
+
 async def main():
     await app.start()
     logger.info("[ OK ] Bot iniciado exitosamente...")
+
+    # Inicia el servidor web
+    web_app = web.Application()
+    web_app.router.add_get('/', dashboard_handler)
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8080)
+    await site.start()
+    
+    logger.info("🌐 Servidor web iniciado en puerto 8080")
+    await asyncio.Event().wait()
+
     asyncio.create_task(watch_folder_loop())
     await asyncio.Event().wait()
 

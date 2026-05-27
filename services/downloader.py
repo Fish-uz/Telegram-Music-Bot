@@ -29,6 +29,17 @@ class MusicDownloader:
         if not os.makedirs(self.download_dir, exist_ok=True):
             self.logger.debug(f"Directorio verificado: {self.download_dir}")
 
+    # --- LÓGICA DE RENOMBRADO SEGURO ---
+    def _sanitize_and_rename(self, current_path: str, title: str) -> str:
+        # Limpiar caracteres prohibidos para sistemas de archivos
+        clean_title = "".join([c for c in title if c.isalnum() or c in (' ', '-', '_')]).strip()
+        new_path = os.path.join(self.download_dir, f"{clean_title}.mp3")
+        
+        # Renombrar el archivo
+        if os.path.exists(current_path):
+            os.replace(current_path, new_path)
+        return new_path
+
     async def download(self, url: str, query: str) -> Tuple[str, str]:
         """
         Contrato principal de descarga. Intenta obtener el audio usando una lista
@@ -46,7 +57,7 @@ class MusicDownloader:
         """
         # Lista de métodos a intentar en orden de prioridad
         methods = [
-            (self._sync_download_youtube, url),      # Prioridad 1: Enlace directo o búsqueda en YT
+            (self._sync_download_youtube, url),   # Prioridad 1: Enlace directo o búsqueda en YT
             (self._sync_download_soundcloud, query), # Prioridad 2: Respaldo en SoundCloud
             (self._sync_download_bandcamp, query),   # Prioridad 3: Respaldo en Bandcamp
         ]
@@ -132,7 +143,8 @@ class MusicDownloader:
                 info = info['entries'][0]
 
             filename = ydl.prepare_filename(info).rsplit('.', 1)[0] + ".mp3"
-            return filename, info['title']
+            clean_filename = self._sanitize_and_rename(filename, info['title'])
+            return clean_filename, info['title']
 
     def _sync_download_soundcloud(self, query: str) -> Tuple[str, str]:
         """Descarga desde SoundCloud usando el primer resultado de búsqueda."""
@@ -143,7 +155,8 @@ class MusicDownloader:
             info = ydl.extract_info(f"scsearch1:{query}", download=True)
             entry = info['entries'][0]
             filename = ydl.prepare_filename(entry).rsplit('.', 1)[0] + ".mp3"
-            return filename, entry['title']
+            clean_filename = self._sanitize_and_rename(filename, entry['title'])
+            return clean_filename, entry['title']
 
     def _sync_download_bandcamp(self, query: str) -> Tuple[str, str]:
         """Descarga desde Bandcamp usando el primer resultado de búsqueda."""
@@ -154,4 +167,5 @@ class MusicDownloader:
             info = ydl.extract_info(f"bcsearch1:{query}", download=True)
             entry = info['entries'][0]
             filename = ydl.prepare_filename(entry).rsplit('.', 1)[0] + ".mp3"
-            return filename, entry['title']
+            clean_filename = self._sanitize_and_rename(filename, entry['title'])
+            return clean_filename, entry['title']
