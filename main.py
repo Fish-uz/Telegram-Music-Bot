@@ -11,11 +11,11 @@ def start_bot():
         try:
             with open("cookies.txt", "w", encoding="utf-8") as f:
                 f.write(cookies_content)
-            print("✅ Archivo cookies.txt generado exitosamente.")
+            print("Archivo cookies.txt generado exitosamente.")
         except Exception as e:
-            print(f"❌ Error al crear cookies.txt: {e}")
+            print(f"Error al crear cookies.txt: {e}")
     else:
-        print("⚠️ Advertencia: No se encontró la variable YOUTUBE_COOKIES. Algunas descargas podrían fallar.")
+        print(" Advertencia: No se encontró la variable YOUTUBE_COOKIES. Algunas descargas podrían fallar.")
 
     engine = MusicDownloader(
         download_dir="downloads", 

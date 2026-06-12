@@ -63,10 +63,10 @@ async def show_history(client, message):
     if not rows:
         return await message.reply_text("📋 **Tu historial está vacío.** ¡Empieza a buscar música ahora!")
         
-    text = "📜 **Tus últimas 5 descargas recientes:**\n\n"
+    text = "**Tus últimas 5 descargas recientes:**\n\n"
     for i, row in enumerate(rows, 1):
         text += f"{i}️⃣ `{row[0]}`\n"
-    text += "\n💡 _Puedes volver a escribir el nombre de cualquiera de ellas para descargarlas de nuevo._"
+    text += "\n_Puedes volver a escribir el nombre de cualquiera de ellas para descargarlas de nuevo._"
     await message.reply_text(text)
 
 async def start_command(client, message):
@@ -94,37 +94,37 @@ async def soporte_command(client, message):
     user_id = message.from_user.id
     if db.is_user_banned(user_id): return
     if len(message.command) < 2:
-        return await message.reply_text("📩 Uso: `/soporte [Tu mensaje]`")
+        return await message.reply_text("Uso: `/soporte [Tu mensaje]`")
 
     mensaje_usuario = message.text.split(None, 1)[1]
     username = f" (@{message.from_user.username})" if message.from_user.username else ""
     
     reporte = (
-        f"📩 **[SOPORTE]** de {message.from_user.first_name}{username}\n"
-        f"🆔 ID: `{user_id}`\n💬 Mensaje: _{mensaje_usuario}_"
+        f"**[SOPORTE]** de {message.from_user.first_name}{username}\n"
+        f"ID: `{user_id}`\n Mensaje: _{mensaje_usuario}_"
     ) 
     try:
         await client.send_message(chat_id=Config.OWNER_ID, text=reporte)
-        await message.reply_text("✅ Mensaje enviado al administrador.")
+        await message.reply_text("Mensaje enviado al administrador.")
     except Exception:
-        await message.reply_text("❌ Error al enviar.")
+        await message.reply_text("Error al enviar.")
 
 async def playlist_download(client, message):
     user_id = message.from_user.id
     if db.is_user_banned(user_id): return
-    if len(message.command) < 2: return await message.reply_text("🔗 Uso: `/playlist URL`")
+    if len(message.command) < 2: return await message.reply_text("Uso: `/playlist URL`")
 
     url = message.command[1]
-    status_msg = await message.reply_text("⏳ Procesando lista (Máx 10)...")
+    status_msg = await message.reply_text("Procesando lista (Máx 10)...")
     try:
         ids = await searcher.get_playlist_ids(url, limit=10) 
         if not ids: return await status_msg.edit("❌ Error. Lista vacía o privada.")
-        await status_msg.edit(f"✅ Descargando {len(ids)} canciones...")
+        await status_msg.edit(f"Descargando {len(ids)} canciones...")
         for vid_id in ids:
             await process_download(client, message, vid_id, user_id)
             await asyncio.sleep(2)
     except Exception as e:
-        await status_msg.edit(f"❌ Error: {str(e)[:50]}")
+        await status_msg.edit(f"Error: {str(e)[:50]}")
 
 async def handle_message(client, message):
     user_id = message.from_user.id
@@ -147,16 +147,16 @@ async def handle_message(client, message):
         
         if oportunidades_restantes <= 0:
             db.set_user_ban(user_id, True)
-            logger.critical(f"🔥 AUTO-BAN: Usuario {user_id} fue bloqueado permanentemente por ignorar el Anti-Flood.")
+            logger.critical(f"AUTO-BAN: Usuario {user_id} fue bloqueado permanentemente por ignorar el Anti-Flood.")
             await client.send_message(
                 chat_id=Config.OWNER_ID, 
-                text=f"🔥 **[AUTO-BAN DE SEGURIDAD]**\nEl usuario `{user_id}` ha sido bloqueado automáticamente por ataque de Spam continuo."
+                text=f"**[AUTO-BAN DE SEGURIDAD]**\nEl usuario `{user_id}` ha sido bloqueado automáticamente por ataque de Spam continuo."
             )
-            return await message.reply_text("🚫 **Has sido bloqueado permanentemente del bot debido al abuso continuo del sistema de búsquedas.**")
+            return await message.reply_text("**Has sido bloqueado permanentemente del bot debido al abuso continuo del sistema de búsquedas.**")
         
-        logger.warning(f"⚠️ Anti-Flood activado para {user_id} (Advertencia {user_warnings[user_id]}/3)")
+        logger.warning(f"Anti-Flood activado para {user_id} (Advertencia {user_warnings[user_id]}/3)")
         return await message.reply_text(
-            f"⚠️ **¡Detección de Spam!** Estás enviando demasiadas solicitudes.\n"
+            f"**¡Detección de Spam!** Estás enviando demasiadas solicitudes.\n"
             f"Oportunidades antes de baneo permanente: **{oportunidades_restantes}**"
         )
 
@@ -164,14 +164,14 @@ async def handle_message(client, message):
     try:
         results = await searcher.search(query)
         if not results:
-            await status_msg.edit("❌ No se encontraron resultados.")
+            await status_msg.edit("No se encontraron resultados.")
 
-            logger.warning(f"❌ Búsqueda fallida: '{query}' por {message.from_user.first_name} (@{username}) | ID: {user_id}")
+            logger.warning(f"Búsqueda fallida: '{query}' por {message.from_user.first_name} (@{username}) | ID: {user_id}")
             
             # NOTIFICACIÓN DE FALLO AL ADMIN
             await client.send_message(
                 chat_id=Config.OWNER_ID,
-                text=f"⚠️ **[ALERTA DE BÚSQUEDA FALLIDA]**\n🆔 Usuario: `{user_id}`\n🔍 Query: `{query}`"
+                text=f"**[ALERTA DE BÚSQUEDA FALLIDA]**\n🆔 Usuario: `{user_id}`\n🔍 Query: `{query}`"
             )
             logger.warning(f"Búsqueda fallida registrada: '{query}' por usuario {user_id}")
             return

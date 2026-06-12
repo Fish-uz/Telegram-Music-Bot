@@ -18,6 +18,7 @@ __pycache__/
 *$py.class
 .pytest_cache/
 .vscode/
+codigo_completo.txt
 
 # Logs y Archivos de Actividad
 *.log

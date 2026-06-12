@@ -50,13 +50,13 @@ class MusicSearcher:
                 results = await asyncio.to_thread(self._sync_search, f"{prefix}{query}")
                 
                 if results:
-                    self.logger.info(f"✅ Se encontraron {len(results)} resultados en {source_name}")
+                    self.logger.info(f"Se encontraron {len(results)} resultados en {source_name}")
                     return results
                 
                 self.logger.debug(f"Sin resultados en {source_name}, probando siguiente fuente...")
                 
             except Exception as e:
-                self.logger.error(f"❌ Error durante la búsqueda en {source_name}: {str(e)[:100]}")
+                self.logger.error(f"Error durante la búsqueda en {source_name}: {str(e)[:100]}")
                 continue 
 
         self.logger.warning(f"Búsqueda finalizada: No se hallaron resultados para '{query}' en ninguna plataforma.")
@@ -90,14 +90,14 @@ class MusicSearcher:
                 if 'entries' in info:
                     # Filtramos entradas nulas para evitar errores en el procesamiento posterior
                     ids = [entry['id'] for entry in info['entries'] if entry]
-                    self.logger.info(f"✅ Playlist procesada: {len(ids)} IDs obtenidos.")
+                    self.logger.info(f"Playlist procesada: {len(ids)} IDs obtenidos.")
                     return ids
                     
                 self.logger.warning("La URL proporcionada no contiene entradas válidas.")
                 return []
                 
         except Exception as e:
-            self.logger.error(f"❌ Error crítico extrayendo playlist: {str(e)}", exc_info=True)
+            self.logger.error(f"Error crítico extrayendo playlist: {str(e)}", exc_info=True)
             return []
 
     def _sync_search(self, search_target: str):

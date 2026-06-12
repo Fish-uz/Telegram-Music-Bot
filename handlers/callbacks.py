@@ -11,10 +11,10 @@ async def handle_callbacks(client, callback_query):
     data = callback_query.data
 
     if db.is_user_banned(user_id):
-        return await callback_query.answer("🚫 Estás baneado.", show_alert=True)
+        return await callback_query.answer("Estás baneado.", show_alert=True)
 
     if user_id not in user_results and data != "del_audio":
-        await callback_query.answer("⚠️ Sesión expirada, busca de nuevo.")
+        await callback_query.answer("Sesión expirada, busca de nuevo.")
         return
 
     if data.startswith("pg_"):
@@ -26,7 +26,7 @@ async def handle_callbacks(client, callback_query):
         user_results.pop(user_id, None)
     elif data.startswith("dl_"):
         video_id = data.split("_", 1)[1]
-        await callback_query.answer("📥 Preparando descarga...")
+        await callback_query.answer("Preparando descarga...")
         asyncio.create_task(process_download(client, callback_query.message, video_id, user_id))
     elif data == "del_audio":
         await callback_query.message.delete()
