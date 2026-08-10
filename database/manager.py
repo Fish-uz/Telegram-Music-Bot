@@ -167,6 +167,39 @@ class DatabaseManager:
         cursor.execute("SELECT COUNT(*) FROM users WHERE is_banned = 1")
         return cursor.fetchone()[0]
 
+    def get_recent_downloads(self, limit=8):
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT title, date FROM history ORDER BY id DESC LIMIT ?', (limit,))
+        return cursor.fetchall()
+
+    def get_recent_users(self, limit=8):
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT user_id, username, total_downloads, last_download_date, is_banned
+            FROM users
+            ORDER BY total_downloads DESC, last_download_date DESC
+            LIMIT ?
+        ''', (limit,))
+        return cursor.fetchall()
+
+    def get_user_detail(self, user_id):
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT user_id, username, total_downloads, last_download_date, is_banned
+            FROM users WHERE user_id = ?
+        ''', (user_id,))
+        info = cursor.fetchone()
+        if not info:
+            return None
+
+        cursor.execute('''
+            SELECT title, date FROM history
+            WHERE user_id = ?
+            ORDER BY id DESC LIMIT 10
+        ''', (user_id,))
+        history = cursor.fetchall()
+        return {"info": info, "history": history}
+
     def get_failed_downloads(self):
         # Esta función retorna 0 si no tienes una tabla de errores específica.
         return 0

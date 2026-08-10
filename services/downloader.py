@@ -9,6 +9,19 @@ import logging
 import shutil
 from typing import Tuple
 
+
+def _resolve_ffmpeg_path() -> str | None:
+    candidates = [
+        os.getenv("FFMPEG_PATH"),
+        shutil.which("ffmpeg"),
+        "/usr/bin/ffmpeg",
+        "/usr/local/bin/ffmpeg",
+    ]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return None
+
 class MusicDownloader:
 
     def __init__(self, download_dir: str, cookies_path: str):
@@ -70,46 +83,48 @@ class MusicDownloader:
 
     # --- MÉTODOS PRIVADOS (LÓGICA SÍNCRONA DE YT-DLP) ---
     def _get_common_opts(self, out_prefix: str) -> dict:
-        ffmpeg_bin = shutil.which("ffmpeg")
-       
+        ffmpeg_bin = _resolve_ffmpeg_path()
+
         if ffmpeg_bin is None:
             self.logger.error("FFmpeg NO ha sido encontrado en el sistema.")
-
         else:
             self.logger.debug(f"FFmpeg encontrado en: {ffmpeg_bin}")
 
         return {
-            # 1. Calidad y Formato
             'format': 'bestaudio/best',
             'outtmpl': f'{self.download_dir}/{out_prefix}_%(id)s.%(ext)s',
-           
-            # 2. Autenticación y Red (Vital para Railway)
             'cookiefile': self.cookies_path,
             'source_address': '0.0.0.0',
             'nocheckcertificate': True,
             'ffmpeg_location': ffmpeg_bin,
-
-            # 3. Post-procesamiento (Audio + Carátula)
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Referer': 'https://www.youtube.com/'
+            },
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web'],
+                    'player_skip': ['configs', 'webplayer']
+                }
+            },
             'postprocessors': [
                 {
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'mp3',
                     'preferredquality': '192',
                 },
-
                 {
-
                     'key': 'EmbedThumbnail',
                 }
-
             ],
-
-            # 4. Limpieza de Logs y Errores
             'quiet': True,
             'no_warnings': True,
             'ignoreerrors': False,
             'logtostderr': False,
             'default_search': 'auto',
+            'retries': 3,
+            'retry_sleep_functions': {'http': 2, 'fragment': 2},
         }
 
     def _sync_download_youtube(self, url_or_query: str) -> Tuple[str, str]:

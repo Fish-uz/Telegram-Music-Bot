@@ -6,3 +6,4 @@ yt-dlp
 apscheduler
 asyncio
 logging
+aiohttp==3.10.11

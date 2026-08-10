@@ -1,93 +1,174 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <title>H2O Admin Dashboard</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MusicBot Admin</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body class="bg-[#0a0c10] text-slate-300 grid grid-cols-[240px,1fr] h-screen font-sans">
-    
-    <aside class="bg-[#0f111a] border-r border-slate-800 p-6">
-        <h1 class="text-white font-bold text-lg mb-8 tracking-wider">H2O ADMIN</h1>
-        <nav class="space-y-4 text-sm">
-            <button onclick="render('dashboard')" class="block w-full text-left hover:text-sky-400">Dashboard</button>
-            <button onclick="render('users')" class="block w-full text-left hover:text-sky-400">Usuarios</button>
-            <button onclick="render('songs')" class="block w-full text-left hover:text-sky-400">Canciones en Nube</button>
-        </nav>
-    </aside>
+<body class="min-h-screen bg-[#050816] text-slate-200">
+    <div class="flex min-h-screen">
+        <aside class="w-72 bg-[#0b1122] border-r border-slate-800 p-6 hidden lg:block">
+            <div class="mb-8">
+                <p class="text-sky-400 text-xs uppercase tracking-[0.35em]">Panel de control</p>
+                <h1 class="text-2xl font-semibold text-white mt-2">MusicBot</h1>
+            </div>
+            <nav class="space-y-2 text-sm">
+                <button onclick="render('dashboard')" class="w-full text-left rounded-lg px-3 py-2 bg-slate-800/70 hover:bg-slate-700 transition">Dashboard</button>
+                <button onclick="render('users')" class="w-full text-left rounded-lg px-3 py-2 hover:bg-slate-800/70 transition">Usuarios</button>
+                <button onclick="render('activity')" class="w-full text-left rounded-lg px-3 py-2 hover:bg-slate-800/70 transition">Actividad</button>
+            </nav>
+        </aside>
 
-    <main id="app" class="p-8 overflow-y-auto">
+        <main class="flex-1 p-6 lg:p-8 overflow-y-auto">
+            <div id="app" class="space-y-6"></div>
         </main>
+    </div>
 
     <script>
         const app = document.getElementById('app');
 
         async function render(view, id = null) {
-            app.innerHTML = '<p class="text-slate-500">Cargando...</p>';
+            app.innerHTML = '<div class="rounded-2xl border border-slate-800 bg-[#0b1122] p-6 text-slate-400">Cargando métricas...</div>';
 
             if (view === 'dashboard') {
                 const res = await fetch('/api/stats');
                 const data = await res.json();
                 app.innerHTML = `
-                    <div class="grid grid-cols-4 gap-6 mb-8">
+                    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                         ${createCard('Usuarios', data.summary.total_users, 'Registrados')}
-                        ${createCard('Descargas', data.summary.total_downloads, 'Histórico')}
+                        ${createCard('Descargas', data.summary.total_downloads, 'Total histórico')}
                         ${createCard('Baneados', data.summary.banned_users, 'Restringidos')}
+                        ${createCard('Uptime', formatSeconds(data.summary.uptime_seconds), 'Servidor activo')}
                     </div>
-                    <div class="bg-[#0f111a] p-6 rounded-lg border border-slate-800"><canvas id="chart"></canvas></div>
+
+                    <div class="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+                        <div class="rounded-2xl border border-slate-800 bg-[#0b1122] p-5">
+                            <div class="flex items-center justify-between mb-4">
+                                <h2 class="text-lg font-semibold text-white">Actividad reciente</h2>
+                                <span class="text-xs text-slate-500">Últimas descargas</span>
+                            </div>
+                            <canvas id="chart"></canvas>
+                        </div>
+                        <div class="rounded-2xl border border-slate-800 bg-[#0b1122] p-5">
+                            <h2 class="text-lg font-semibold text-white mb-4">Top canciones</h2>
+                            <ul class="space-y-3">
+                                ${data.top_songs.map((song, i) => `
+                                    <li class="flex items-center justify-between rounded-lg bg-slate-900/70 px-3 py-2">
+                                        <span class="text-sm text-slate-200">${i + 1}. ${song[0]}</span>
+                                        <span class="text-sky-400 text-sm">${song[1]}x</span>
+                                    </li>
+                                `).join('')}
+                            </ul>
+                        </div>
+                    </div>
                 `;
-                initChart();
-            } 
+                initChart(data.recent_downloads);
+            }
             else if (view === 'users') {
                 const res = await fetch('/api/users');
                 const users = await res.json();
                 app.innerHTML = `
-                    <h2 class="text-xl font-bold mb-6">Listado de Usuarios</h2>
-                    <table class="w-full text-left border-collapse bg-[#0f111a] rounded-lg">
-                        <thead class="text-xs text-slate-500 uppercase bg-[#161925]">
-                            <tr><th class="p-4">ID</th><th class="p-4">Nick</th><th class="p-4">Total</th><th class="p-4">Estado</th></tr>
-                        </thead>
-                        <tbody>
-                            ${users.map(u => `
-                                <tr class="border-b border-slate-800 hover:bg-slate-900 cursor-pointer" onclick="render('user_detail', ${u[0]})">
-                                    <td class="p-4">${u[0]}</td><td class="p-4">${u[1]}</td><td class="p-4">${u[2]}</td>
-                                    <td class="p-4">${u[4] ? '<span class="text-red-500">Baneado</span>' : '<span class="text-green-500">Activo</span>'}</td>
-                                </tr>`).join('')}
-                        </tbody>
-                    </table>`;
+                    <div class="rounded-2xl border border-slate-800 bg-[#0b1122] p-5">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-xl font-semibold text-white">Usuarios</h2>
+                            <span class="text-sm text-slate-500">Últimos activos</span>
+                        </div>
+                        <div class="overflow-hidden rounded-xl border border-slate-800">
+                            <table class="w-full text-left text-sm">
+                                <thead class="bg-slate-900/70 text-slate-400">
+                                    <tr>
+                                        <th class="p-3">Usuario</th>
+                                        <th class="p-3">Descargas</th>
+                                        <th class="p-3">Última actividad</th>
+                                        <th class="p-3">Estado</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${users.map(u => `
+                                        <tr class="border-t border-slate-800 hover:bg-slate-900/70 cursor-pointer" onclick="render('user_detail', ${u[0]})">
+                                            <td class="p-3 text-slate-200">${u[1] || u[0]}</td>
+                                            <td class="p-3 text-slate-300">${u[2]}</td>
+                                            <td class="p-3 text-slate-400">${u[3] || 'Sin actividad'}</td>
+                                            <td class="p-3">${u[4] ? '<span class="text-rose-400">Baneado</span>' : '<span class="text-emerald-400">Activo</span>'}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
             }
             else if (view === 'user_detail') {
                 const res = await fetch(`/api/user/${id}`);
                 const data = await res.json();
                 app.innerHTML = `
-                    <button onclick="render('users')" class="text-sky-500 mb-4">← Volver al listado</button>
-                    <h2 class="text-2xl font-bold mb-4">${data.info[1]} (ID: ${data.info[0]})</h2>
-                    <div class="bg-[#0f111a] p-6 rounded-lg">
-                        <p>Total descargas: ${data.info[2]}</p>
-                        <p>Última actividad: ${data.info[3] || 'N/A'}</p>
+                    <button onclick="render('users')" class="mb-4 text-sky-400">← Volver</button>
+                    <div class="rounded-2xl border border-slate-800 bg-[#0b1122] p-5">
+                        <h2 class="text-xl font-semibold text-white">${data.info[1] || data.info[0]}</h2>
+                        <p class="text-sm text-slate-400 mt-2">ID: ${data.info[0]} • Descargas: ${data.info[2]}</p>
+                        <p class="text-sm text-slate-400">Última actividad: ${data.info[3] || 'N/A'}</p>
+                        <div class="mt-6">
+                            <h3 class="text-lg font-semibold text-white mb-3">Historial reciente</h3>
+                            <ul class="space-y-2">
+                                ${data.history.map(item => `<li class="rounded-lg bg-slate-900/70 px-3 py-2 text-sm text-slate-300">${item[0]} • ${item[1]}</li>`).join('')}
+                            </ul>
+                        </div>
                     </div>
-                    <h3 class="mt-6 font-bold">Historial de Canciones:</h3>
-                    <ul class="mt-2 space-y-2">${data.songs.map(s => `<li>${s[0]} - <span class="text-slate-500">${s[1]}</span></li>`).join('')}</ul>
+                `;
+            }
+            else if (view === 'activity') {
+                const res = await fetch('/api/stats');
+                const data = await res.json();
+                app.innerHTML = `
+                    <div class="rounded-2xl border border-slate-800 bg-[#0b1122] p-5">
+                        <h2 class="text-xl font-semibold text-white mb-4">Actividad y eventos</h2>
+                        <ul class="space-y-2">
+                            ${data.recent_downloads.map(item => `<li class="rounded-lg bg-slate-900/70 px-3 py-2 text-sm text-slate-300">🎵 ${item[0]} • ${item[1]}</li>`).join('')}
+                        </ul>
+                    </div>
                 `;
             }
         }
 
         function createCard(title, val, sub) {
             return `
-                <div class="bg-[#0f111a] p-5 rounded-lg border border-slate-800">
-                    <p class="text-[10px] uppercase text-slate-500 font-bold tracking-widest">${title}</p>
-                    <h3 class="text-2xl font-bold text-white mt-1">${val}</h3>
-                    <p class="text-[10px] text-sky-500 mt-2">${sub}</p>
+                <div class="rounded-2xl border border-slate-800 bg-[#0b1122] p-5 shadow-lg shadow-slate-950/20">
+                    <p class="text-[10px] uppercase tracking-[0.3em] text-slate-500">${title}</p>
+                    <h3 class="mt-2 text-2xl font-semibold text-white">${val}</h3>
+                    <p class="mt-2 text-sm text-sky-400">${sub}</p>
                 </div>
             `;
         }
 
-        function initChart() {
+        function formatSeconds(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            return `${h}h ${m}m`;
+        }
+
+        function initChart(recentDownloads) {
+            const labels = recentDownloads.map((_, idx) => `#${idx + 1}`);
+            const values = recentDownloads.map(item => item[0].length);
             new Chart(document.getElementById('chart'), {
                 type: 'line',
-                data: { labels: ['Lun', 'Mar', 'Mié', 'Jue'], datasets: [{ data: [12, 19, 3, 5], borderColor: '#0ea5e9' }] },
-                options: { responsive: true, plugins: { legend: { display: false } } }
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Actividad',
+                        data: values,
+                        borderColor: '#38bdf8',
+                        backgroundColor: 'rgba(56, 189, 248, 0.15)',
+                        tension: 0.35,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { display: false } }
+                }
             });
         }
 

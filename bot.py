@@ -1,5 +1,8 @@
 import asyncio
 import os
+import time
+from pathlib import Path
+
 from pyrogram import Client, filters
 from pyrogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton, 
@@ -30,7 +33,9 @@ searcher = MusicSearcher()
 user_results = {}
 
 TXT_DIR = "downloads/archivostxt"
-BACKUP_CHAT_ID = -1003950302665  
+BACKUP_CHAT_ID = -1003950302665
+START_TIME = time.time()
+TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "index.html"
 
 # --- INGESTOR MASIVO OCULTO (FolderWatcher) ---
 async def watch_folder_loop():
@@ -165,9 +170,7 @@ async def process_download(client, message, video_id, user_id):
                     break
 
         if status:
-            await asyncio.sleep(0.7)
             await status.edit_text(f"📥 **Descargando Audio** ({make_progress_bar(40)}) 40%")
-            await asyncio.sleep(0.7)
             await status.edit_text(f"📥**Procesando frecuencias de Audio** ({make_progress_bar(75)})75%")
 
         file_path, title = await engine.download(f"https://www.youtube.com/watch?v={video_id}", query_fallback)
@@ -206,37 +209,71 @@ async def process_download(client, message, video_id, user_id):
             asyncio.create_task(auto_delete_panel(message, user_id))
             
     except Exception as e:
-        if status: await status.edit_text("❌ **Error: Esta pista no se encuentra disponible actualmente.**")
-        raise Exception(str(e))
+        error_text = str(e)
+        if status:
+            await status.edit_text(f"❌ **No se pudo descargar la pista.**\n\nDetalle: {error_text[:140]}")
+        logger.error(f"Error en descarga: {error_text}")
+        raise Exception(error_text)
 
 init_admin_handlers(app, db)
 init_users_handlers(app, db, searcher, user_results, send_search_results, process_download)
 init_callbacks_handlers(app, db, user_results, edit_search_results, process_download)
 
-# Dashboard básico que lee de tu base de datos
 async def dashboard_handler(request):
-    total_users = db.get_total_users()
-    total_downloads = db.get_total_downloads()
-    return web.Response(
-        text=f"📊 ESTADÍSTICAS DEL BOT\n\nUsuarios totales: {total_users}\nDescargas totales: {total_downloads}",
-        content_type='text/plain'
-    )
+    if TEMPLATE_PATH.exists():
+        return web.Response(text=TEMPLATE_PATH.read_text(encoding="utf-8"), content_type="text/html")
+    return web.Response(text="Dashboard no disponible", content_type="text/plain")
+
+
+async def stats_handler(request):
+    summary = {
+        "total_users": db.get_total_users(),
+        "total_downloads": db.get_total_downloads(),
+        "banned_users": db.get_total_banned(),
+        "failed_downloads": db.get_failed_downloads(),
+        "uptime_seconds": int(time.time() - START_TIME),
+    }
+    return web.json_response({
+        "summary": summary,
+        "recent_downloads": db.get_recent_downloads(6),
+        "top_songs": db.get_top_songs(5),
+        "recent_users": db.get_recent_users(6),
+    })
+
+
+async def users_handler(request):
+    return web.json_response(db.get_recent_users(50))
+
+
+async def user_detail_handler(request):
+    user_id = request.match_info.get("user_id")
+    try:
+        user_id_int = int(user_id)
+    except (TypeError, ValueError):
+        return web.json_response({"error": "user_id inválido"}, status=400)
+
+    data = db.get_user_detail(user_id_int)
+    if not data:
+        return web.json_response({"error": "usuario no encontrado"}, status=404)
+
+    return web.json_response(data)
+
 
 async def main():
     await app.start()
     logger.info("[ OK ] Bot iniciado exitosamente...")
 
-    # Inicia el servidor web
     web_app = web.Application()
     web_app.router.add_get('/', dashboard_handler)
+    web_app.router.add_get('/api/stats', stats_handler)
+    web_app.router.add_get('/api/users', users_handler)
+    web_app.router.add_get('/api/user/{user_id}', user_detail_handler)
     runner = web.AppRunner(web_app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', 8080)
     await site.start()
-    
-    logger.info("🌐 Servidor web iniciado en puerto 8080")
-    await asyncio.Event().wait()
 
+    logger.info("🌐 Servidor web iniciado en puerto 8080")
     asyncio.create_task(watch_folder_loop())
     await asyncio.Event().wait()
 

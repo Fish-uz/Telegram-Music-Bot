@@ -1,13 +1,13 @@
 import logging
-import sys
 import os
+import sys
 from logging.handlers import RotatingFileHandler
 
 RESET = "\033[0m"
 CYAN = "\033[36m"
 YELLOW = "\033[33m"
 RED = "\033[31m"
-GREEN = "\033[32m"
+
 
 class CustomFormatter(logging.Formatter):
     def format(self, record):
@@ -20,32 +20,43 @@ class CustomFormatter(logging.Formatter):
         else:
             prefix = f"[{record.levelname}]"
 
-        record.msg = f"{prefix} {record.msg}"
+        logger_name = f"[{record.name}]" if record.name not in {"root", "bot"} else ""
+        record.msg = f"{prefix}{logger_name} {record.msg}"
         return super().format(record)
+
 
 def setup_logger():
     logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+    logger.setLevel(getattr(logging, os.getenv("BOT_LOG_LEVEL", "INFO").upper(), logging.INFO))
+    logger.propagate = False
 
-    if not logger.handlers:
-        # 1. Manejador para la Terminal con colores
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setFormatter(CustomFormatter('%(message)s'))
-        logger.addHandler(console_handler)
+    if logger.handlers:
+        return logger
 
-        # 2. Manejador para Archivo con Auto-Rotación a los 50MB (50 * 1024 * 1024 bytes)
-        os.makedirs("logs", exist_ok=True)
-        file_handler = RotatingFileHandler(
-            "logs/bot_activity.log", 
-            maxBytes=52428800, 
-            backupCount=3, 
-            encoding="utf-8"
-        )
-        # Para el archivo usamos un formato estándar sin códigos de color ANSI
-        file_formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-        file_handler.setFormatter(file_formatter)
-        logger.addHandler(file_handler)
-    
+    os.makedirs("logs", exist_ok=True)
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(CustomFormatter("%(message)s"))
+    logger.addHandler(console_handler)
+
+    file_handler = RotatingFileHandler(
+        "logs/bot_activity.log",
+        maxBytes=10 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8"
+    )
+    file_formatter = logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
+
     return logger
+
+
+def setup_logging():
+    return setup_logger()
+
 
 logger = setup_logger()
