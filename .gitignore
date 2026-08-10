@@ -1,16 +1,16 @@
 # Entorno Virtual
 venv/
 env/
-.env
+# .env
 
 # Archivos de configuración sensible
 *.session
 *.session-journal
-cookies.txt
-config.json
+# cookies.txt
+# config.json
 
 # Base de datos local (¡CRITICAL! No subir datos de usuarios)
-database/*.db
+# database/*.db
 
 # Archivos temporales de Python
 __pycache__/
