@@ -73,21 +73,23 @@ class MusicDownloader:
         ffmpeg_bin = shutil.which("ffmpeg")
        
         if ffmpeg_bin is None:
-            self.logger.error("FFmpeg NO ha sido encontrado en el sistema.")
+            raise RuntimeError("FFmpeg no ha sido encontrado en el sistema.")
 
         else:
             self.logger.debug(f"FFmpeg encontrado en: {ffmpeg_bin}")
 
-        return {
+        opts = {
             # 1. Calidad y Formato
             'format': 'bestaudio/best',
             'outtmpl': f'{self.download_dir}/{out_prefix}_%(id)s.%(ext)s',
            
             # 2. Autenticación y Red (Vital para Railway)
-            'cookiefile': self.cookies_path,
             'source_address': '0.0.0.0',
             'nocheckcertificate': True,
             'ffmpeg_location': ffmpeg_bin,
+            # YouTube requiere resolver desafíos JavaScript modernos. Node está
+            # instalado localmente y debe habilitarse explícitamente en yt-dlp.
+            'js_runtimes': {'node': {}},
 
             # 3. Post-procesamiento (Audio + Carátula)
             'postprocessors': [
@@ -112,12 +114,20 @@ class MusicDownloader:
             'default_search': 'auto',
         }
 
+        if self.cookies_path and os.path.isfile(self.cookies_path):
+            opts['cookiefile'] = self.cookies_path
+        else:
+            self.logger.warning(
+                "No se encontró un archivo de cookies; se intentará la descarga sin cookies."
+            )
+
+        return opts
+
     def _sync_download_youtube(self, url_or_query: str) -> Tuple[str, str]:
 
         """Descarga desde YouTube usando link o búsqueda interna."""
 
         opts = self._get_common_opts("yt")
-        opts['cookiefile'] = self.cookies_path
         target = url_or_query
 
         if not url_or_query.startswith("http"):

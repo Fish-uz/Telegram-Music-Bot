@@ -2,7 +2,6 @@ pyaes==1.6.1
 Pyrogram==2.0.106
 PySocks==1.7.1
 python-dotenv==1.2.2
-yt-dlp
+yt-dlp[default]
 apscheduler
-asyncio
-logging
+aiohttp

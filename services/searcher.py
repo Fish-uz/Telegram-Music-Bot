@@ -9,7 +9,7 @@ import logging
 
 class MusicSearcher:
     """
-    Clase que implementa motores de búsqueda para YouTube, SoundCloud y Bandcamp.
+    Clase que implementa búsquedas de música exclusivamente en YouTube.
     Permite obtener resultados de búsqueda y procesar enlaces de listas de reproducción.
     """
     
@@ -34,11 +34,9 @@ class MusicSearcher:
         Returns:
             list: Lista de diccionarios con metadatos de las canciones encontradas.
         """
-        # Fuentes de búsqueda ordenadas por prioridad
+        # YouTube es la única fuente soportada por el flujo de descarga.
         sources = [
             (f"ytsearch{limit}:", "YouTube"),
-            (f"scsearch{limit}:", "SoundCloud"),
-            (f"bcsearch{limit}:", "Bandcamp")
         ]
 
         self.logger.info(f"--- Iniciando búsqueda global: '{query}' ---")

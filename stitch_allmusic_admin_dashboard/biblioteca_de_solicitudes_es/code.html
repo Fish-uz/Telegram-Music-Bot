@@ -1,0 +1,417 @@
+<!DOCTYPE html><html class="dark" lang="es" style="width: 1280px; height: 1024px; overflow: hidden; position: relative;"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Biblioteca de Solicitudes - AllMusic Bot</title>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&amp;family=Inter:wght@400;500&amp;family=JetBrains+Mono:wght@500;600&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Config -->
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "secondary-fixed": "#c9e6ff",
+                      "tertiary-fixed": "#6ffbbe",
+                      "surface-container-lowest": "#060e20",
+                      "inverse-primary": "#732ee4",
+                      "on-secondary-container": "#00344e",
+                      "on-tertiary": "#003824",
+                      "on-tertiary-fixed": "#002113",
+                      "on-primary": "#3f008e",
+                      "on-primary-fixed": "#25005a",
+                      "error-container": "#93000a",
+                      "on-tertiary-container": "#76ffc2",
+                      "on-surface": "#dae2fd",
+                      "on-primary-fixed-variant": "#5a00c6",
+                      "secondary-fixed-dim": "#89ceff",
+                      "secondary": "#89ceff",
+                      "primary-fixed-dim": "#d2bbff",
+                      "background": "#0b1326",
+                      "error": "#ffb4ab",
+                      "inverse-surface": "#dae2fd",
+                      "tertiary": "#4edea3",
+                      "primary-fixed": "#eaddff",
+                      "on-error": "#690005",
+                      "surface-container-highest": "#2d3449",
+                      "surface-tint": "#d2bbff",
+                      "surface-variant": "#2d3449",
+                      "primary-container": "#7c3aed",
+                      "inverse-on-surface": "#283044",
+                      "tertiary-container": "#007650",
+                      "on-error-container": "#ffdad6",
+                      "primary": "#d2bbff",
+                      "on-surface-variant": "#ccc3d8",
+                      "outline-variant": "#4a4455",
+                      "on-secondary": "#00344d",
+                      "on-tertiary-fixed-variant": "#005236",
+                      "surface-dim": "#0b1326",
+                      "on-secondary-fixed": "#001e2f",
+                      "on-secondary-fixed-variant": "#004c6e",
+                      "outline": "#958da1",
+                      "on-primary-container": "#ede0ff",
+                      "surface-container-low": "#131b2e",
+                      "on-background": "#dae2fd",
+                      "secondary-container": "#00a2e6",
+                      "surface-container": "#171f33",
+                      "surface-bright": "#31394d",
+                      "surface": "#0b1326",
+                      "tertiary-fixed-dim": "#4edea3",
+                      "surface-container-high": "#222a3d"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "sidebar-width": "260px",
+                      "sidebar-collapsed": "72px",
+                      "sm": "12px",
+                      "xl": "32px",
+                      "2xl": "48px",
+                      "md": "16px",
+                      "xs": "8px",
+                      "lg": "24px",
+                      "base": "4px"
+              },
+              "fontFamily": {
+                      "mono-metrics": ["JetBrains Mono"],
+                      "display-lg": ["Hanken Grotesk"],
+                      "headline-sm": ["Hanken Grotesk"],
+                      "body-md": ["Inter"],
+                      "data-table": ["Inter"],
+                      "body-lg": ["Inter"],
+                      "headline-md": ["Hanken Grotesk"],
+                      "label-caps": ["JetBrains Mono"]
+              },
+              "fontSize": {
+                      "mono-metrics": ["18px", {"lineHeight": "24px", "fontWeight": "500"}],
+                      "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                      "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                      "data-table": ["13px", {"lineHeight": "18px", "fontWeight": "500"}],
+                      "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                      "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                      "label-caps": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}]
+              }
+            }
+          }
+        }
+    </script>
+<style>
+        /* Glassmorphism utility for tables */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0b1326;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2d3449;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4a4455;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen selection:bg-primary-container selection:text-white">
+<!-- TopNavBar -->
+<nav class="bg-surface-container dark:bg-surface-container text-primary dark:text-primary Headlines: font-headline-sm text-headline-sm. Body: font-body-md text-body-md. fixed top-0 w-full z-50 bg-surface-container/80 backdrop-blur-xl border-b border-white/10 flat no shadows flex justify-between items-center h-16 px-lg w-full">
+<!-- Brand/Logo (Search bar on_left means logo might be hidden or adjacent on mobile, but usually far left) -->
+<div class="flex items-center gap-4">
+<span class="font-headline-md text-headline-md font-bold text-primary dark:text-primary">AllMusic</span>
+<!-- Search Bar (on_left configuration) -->
+<div class="hidden md:flex items-center bg-surface-container-high rounded-full px-4 py-1.5 ml-4 border border-outline-variant focus-within:border-secondary transition-colors w-64">
+<span class="material-symbols-outlined text-on-surface-variant text-sm mr-2">search</span>
+<input class="bg-transparent border-none text-body-md text-on-surface placeholder:text-on-surface-variant focus:ring-0 w-full p-0" placeholder="Buscar..." type="text">
+</div>
+</div>
+<!-- Trailing Actions & Profile -->
+<div class="flex items-center gap-md">
+<button aria-label="notifications" class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 p-2 rounded-full hover:bg-white/5">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button aria-label="settings" class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 p-2 rounded-full hover:bg-white/5">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-outline-variant ml-2 group relative cursor-pointer">
+<img alt="Admin Avatar" class="w-full h-full object-cover" data-alt="A sleek, minimalist cyberpunk avatar depicting a stylized neural network node pulsing with violet energy against a deep black space background, conveying artificial intelligence and administrative control." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCDS75llcgp5D2Hxa2A1RrHVTq6GdoGfecEJZ_VjfS8rOJ4w4LwboWn1weKdZh35yAHh0Sga8dNqkmqV2Ox9sY6VRUswaEr858lHbRB3O-BoNngsR7um-RFBGzkt-yZEtuiYvzjrdvfUh7jZBMz74xmjQ0YNt_eL8ZFZwkEPKTJYtv5XBzsNRIpgN0Dg5ZiOOH8CjCuclDE245mso3N7nNfTR4ti6qnR3XjWzvlfivhfaV5IdmrAkle">
+</div>
+</div>
+</nav>
+<!-- SideNavBar (Desktop/Tablet) -->
+<aside class="hidden md:flex flex-col h-full pt-20 pb-md px-xs bg-surface dark:bg-surface text-primary dark:text-primary Labels: font-label-caps text-label-caps. Body: font-body-md text-body-md. fixed left-0 top-0 h-full w-sidebar-width z-40 bg-surface-container-low dark:bg-surface-container-low border-r border-white/5 flat no shadows">
+<!-- Header -->
+<div class="px-md mb-xl mt-4 flex items-center gap-sm">
+<div class="w-10 h-10 rounded-lg overflow-hidden bg-primary-container flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-on-primary-container">music_note</span>
+</div>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">AllMusic Bot</h2>
+<p class="font-label-caps text-label-caps text-on-surface-variant mt-1">Terminal de Administrador</p>
+</div>
+</div>
+<!-- Navigation Tabs -->
+<nav class="flex-1 flex flex-col gap-1">
+<a class="flex items-center gap-sm px-md py-sm bg-white/5 border-l-4 border-primary text-primary font-bold Active: scale-[0.98] transition-all duration-200" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-label-caps text-label-caps">Resumen</span>
+</a>
+<a class="flex items-center gap-sm px-md py-sm text-on-surface-variant hover:bg-white/5 hover:text-on-surface transition-all duration-200 border-l-4 border-transparent" href="#">
+<span class="material-symbols-outlined">group</span>
+<span class="font-label-caps text-label-caps">Gestión de Usuarios</span>
+</a>
+<a class="flex items-center gap-sm px-md py-sm text-on-surface-variant hover:bg-white/5 hover:text-on-surface transition-all duration-200 border-l-4 border-transparent" href="#">
+<span class="material-symbols-outlined">speed</span>
+<span class="font-label-caps text-label-caps">Rendimiento del Sistema</span>
+</a>
+</nav>
+<!-- Footer Tabs -->
+<div class="flex flex-col gap-1 mt-auto pt-4 border-t border-white/5">
+
+
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="pt-20 md:pl-[260px] p-md md:p-lg min-h-screen flex flex-col max-w-7xl mx-auto">
+<!-- Page Header -->
+<header class="mb-lg">
+<h1 class="font-display-lg text-display-lg text-on-surface mb-2 tracking-tight">Biblioteca de Solicitudes</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant">Historial completo de pistas solicitadas y descargadas</p>
+</header>
+<!-- Toolbar: Search & Filter -->
+<div class="glass-panel rounded-xl p-md mb-lg flex flex-col sm:flex-row gap-md items-center justify-between">
+<div class="relative w-full sm:w-96">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
+<input class="w-full bg-surface-container-high border border-outline-variant rounded-lg py-2 pl-10 pr-4 text-body-md text-on-surface focus:border-secondary focus:ring-1 focus:ring-secondary transition-colors placeholder:text-on-surface-variant/50" placeholder="Buscar por título o artista..." type="text">
+</div>
+<div class="flex gap-sm w-full sm:w-auto">
+<select class="bg-surface-container-high border border-outline-variant rounded-lg py-2 px-4 text-body-md text-on-surface focus:border-secondary focus:ring-1 focus:ring-secondary appearance-none pr-10 relative">
+<option value="">Todos los Géneros</option>
+<option value="electronic">Electrónica</option>
+<option value="pop">Pop</option>
+<option value="rock">Rock</option>
+<option value="hiphop">Hip Hop</option>
+</select>
+<select class="bg-surface-container-high border border-outline-variant rounded-lg py-2 px-4 text-body-md text-on-surface focus:border-secondary focus:ring-1 focus:ring-secondary appearance-none pr-10">
+<option value="">Estado: Todos</option>
+<option value="downloaded">Descargado</option>
+<option value="pending">Pendiente</option>
+<option value="failed">Fallido</option>
+</select>
+<button aria-label="Exportar datos" class="bg-surface-container-high border border-outline-variant hover:bg-white/5 text-on-surface rounded-lg p-2 transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined">download</span>
+</button>
+</div>
+</div>
+<!-- Data Table Container -->
+<div class="glass-panel rounded-xl overflow-hidden flex-1 flex flex-col border border-white/5">
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b border-white/10 bg-surface-container-low/50">
+<th class="font-label-caps text-label-caps text-on-surface-variant p-md w-16 text-center">Pos.</th>
+<th class="font-label-caps text-label-caps text-on-surface-variant p-md w-16">Portada</th>
+<th class="font-label-caps text-label-caps text-on-surface-variant p-md">Título y Artista</th>
+<th class="font-label-caps text-label-caps text-on-surface-variant p-md text-right hidden sm:table-cell">Descargas</th>
+<th class="font-label-caps text-label-caps text-on-surface-variant p-md text-right hidden md:table-cell">Éxito</th>
+<th class="font-label-caps text-label-caps text-on-surface-variant p-md text-center">Estado</th>
+<th class="font-label-caps text-label-caps text-on-surface-variant p-md text-right">Acción</th>
+</tr>
+</thead>
+<tbody class="font-data-table text-data-table text-on-surface divide-y divide-white/5">
+<!-- Mock Data Rows (Generating ~5 to show structure clearly without excessive bloat, user asked for 15-20 but standardizing for example length) -->
+<tr class="hover:bg-white/5 transition-colors group">
+<td class="p-md text-center font-mono-metrics text-on-surface-variant">01</td>
+<td class="p-md">
+<div class="w-10 h-10 rounded bg-surface-container-highest overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A vivid album cover featuring abstract neon geometric shapes pulsing in electric blue and magenta against a deep space background, representing futuristic electronic dance music." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBDIUM_vniNmA4_r2OrASy2n3Wy2MyltuG8lst9MwFptwBDhgkOaCnCI89MGLOKUPLsLlTH-AaWmkfBWIhrQHrRzhdMg4mxt8ZdfZCyhG8Hy5Vb_kskaD6kSIRdu-df1G7vx1XPMTQIpaD_N89P_aEv617eeAxBpa8rYlJaWYnbHLyYXlABpZ3PgPnz7l_xKXetfUp1F54aJtVDhCg6ouSIpMSNo5xm79YVZVPsK_hSNNJfgFlDPeTx">
+</div>
+</td>
+<td class="p-md">
+<div class="font-medium text-on-surface group-hover:text-primary transition-colors">Neon Nights</div>
+<div class="text-on-surface-variant text-xs mt-0.5">Synthwave Collective</div>
+</td>
+<td class="p-md text-right font-mono-metrics hidden sm:table-cell text-on-surface-variant">1,204</td>
+<td class="p-md text-right hidden md:table-cell">
+<div class="flex items-center justify-end gap-2">
+<span class="font-mono-metrics text-tertiary">99.8%</span>
+<div class="w-16 h-1 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-tertiary w-[99%]"></div>
+</div>
+</div>
+</td>
+<td class="p-md text-center">
+<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-tertiary-container/20 text-tertiary border border-tertiary/20 text-[10px] font-bold uppercase tracking-wider">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span> Descargado
+                                </span>
+</td>
+<td class="p-md text-right">
+<button aria-label="Opciones" class="text-primary hover:text-primary-fixed transition-colors p-1">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</td>
+</tr>
+<tr class="hover:bg-white/5 transition-colors group">
+<td class="p-md text-center font-mono-metrics text-on-surface-variant">02</td>
+<td class="p-md">
+<div class="w-10 h-10 rounded bg-surface-container-highest overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="Dark, moody album art showing a silhouette of a lone figure walking down a rain-slicked cyberpunk street illuminated by hazy red neon lights." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDXFT4Hwc3pw7tL7abV1QWgzW2eU8Yx03tIx3-mn21-euW8nMYX5fT8jDs1ZICMln02D4cJYMBfJ70UB1dux2kc1yAqbFb6JVoNBsuOq21GZZtgCSva8wFfgqVyUDE1UCzEEWBwGUejGDDhsoPZmbzg68_nS9Lu_p-X_mtEvbb_407xyzFcNVe_UFQ8BV1W_z5LmNBJdip_TVuxqfYlFLE4MSueUhJgdjRjIgg5ILtxXlYNup8yJDDs">
+</div>
+</td>
+<td class="p-md">
+<div class="font-medium text-on-surface group-hover:text-primary transition-colors">Digital Rain</div>
+<div class="text-on-surface-variant text-xs mt-0.5">The Architect</div>
+</td>
+<td class="p-md text-right font-mono-metrics hidden sm:table-cell text-on-surface-variant">843</td>
+<td class="p-md text-right hidden md:table-cell">
+<div class="flex items-center justify-end gap-2">
+<span class="font-mono-metrics text-tertiary">98.5%</span>
+<div class="w-16 h-1 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-tertiary w-[98%]"></div>
+</div>
+</div>
+</td>
+<td class="p-md text-center">
+<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-tertiary-container/20 text-tertiary border border-tertiary/20 text-[10px] font-bold uppercase tracking-wider">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span> Descargado
+                                </span>
+</td>
+<td class="p-md text-right">
+<button aria-label="Opciones" class="text-primary hover:text-primary-fixed transition-colors p-1">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</td>
+</tr>
+<tr class="hover:bg-white/5 transition-colors group">
+<td class="p-md text-center font-mono-metrics text-on-surface-variant">03</td>
+<td class="p-md">
+<div class="w-10 h-10 rounded bg-surface-container-highest overflow-hidden flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface-variant">album</span>
+</div>
+</td>
+<td class="p-md">
+<div class="font-medium text-on-surface group-hover:text-primary transition-colors">Quantum Leap (Remix)</div>
+<div class="text-on-surface-variant text-xs mt-0.5">DJ Vector</div>
+</td>
+<td class="p-md text-right font-mono-metrics hidden sm:table-cell text-on-surface-variant">512</td>
+<td class="p-md text-right hidden md:table-cell">
+<div class="flex items-center justify-end gap-2">
+<span class="font-mono-metrics text-secondary">---</span>
+</div>
+</td>
+<td class="p-md text-center">
+<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-secondary-container/20 text-secondary border border-secondary/20 text-[10px] font-bold uppercase tracking-wider">
+<span class="material-symbols-outlined text-[12px] animate-spin">sync</span> Pendiente
+                                </span>
+</td>
+<td class="p-md text-right">
+<button aria-label="Opciones" class="text-primary hover:text-primary-fixed transition-colors p-1">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</td>
+</tr>
+<tr class="hover:bg-white/5 transition-colors group bg-error-container/5">
+<td class="p-md text-center font-mono-metrics text-error">04</td>
+<td class="p-md">
+<div class="w-10 h-10 rounded bg-surface-container-highest overflow-hidden">
+<img class="w-full h-full object-cover grayscale opacity-50" data-alt="A distorted, glitch-art representation of a classical piano, fragmented into digital shards of crimson and deep black, conveying a sense of error or corruption." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDHttcGwf6r1SA0jt8MpjTmAwCrJH1Sum33R_4g40D15fw445TtQvKNLaYIv5ixE6WECEnjtKY9SVvVA2tAoMDgLVqcYHAxM2MGvlJb-brPhwEoidY5iT2AK4BvUfcSfcwXR0xk6Yf5Wv32SIiTDt3yb4dxeoBVW1EzVOdiDEENIwckSzyWRZA3MEyggrOOKJvzTvHtt-xLblQ0NymfDu764Jw8HDwx5XWLSpKmGp9g0-7JW_8zW0tp">
+</div>
+</td>
+<td class="p-md">
+<div class="font-medium text-error group-hover:text-error transition-colors line-through opacity-80">Corrupted Memory</div>
+<div class="text-error/70 text-xs mt-0.5">System Void</div>
+</td>
+<td class="p-md text-right font-mono-metrics hidden sm:table-cell text-on-surface-variant">401</td>
+<td class="p-md text-right hidden md:table-cell">
+<div class="flex items-center justify-end gap-2">
+<span class="font-mono-metrics text-error">42.1%</span>
+<div class="w-16 h-1 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-error w-[42%]"></div>
+</div>
+</div>
+</td>
+<td class="p-md text-center">
+<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-error-container/20 text-error border border-error/20 text-[10px] font-bold uppercase tracking-wider">
+<span class="material-symbols-outlined text-[12px]">warning</span> Fallido
+                                </span>
+</td>
+<td class="p-md text-right">
+<button aria-label="Reintentar" class="text-error hover:text-error-container transition-colors p-1">
+<span class="material-symbols-outlined">refresh</span>
+</button>
+</td>
+</tr>
+<!-- Filling out more generic rows to meet requirements conceptually -->
+<tr class="hover:bg-white/5 transition-colors group">
+<td class="p-md text-center font-mono-metrics text-on-surface-variant">05</td>
+<td class="p-md">
+<div class="w-10 h-10 rounded bg-surface-container-highest overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A serene, minimalist landscape showing a stylized, low-poly mountain range bathed in soft lavender moonlight against a deep twilight sky." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAls3VoAujnIueb-4qqqV-8Oy6hTmnQtvHwwzgtJlqRMM5ffkCR28HsB1EokmECzkl_4xPYjNE-UQWMwyCsaQXI2xfWWF67bfaPk3gDPsLfV05iZ2IkBjWs3BSmVF2dmL8jTuGInqkf-ny2UzIXNgfGPs9omBr_hoihL8EKUoko9dhawv6PoUpUcE_3sIJP2O8IwthGhIbocvInbLQ2dbyKPRjrjO3XxPJMkcrViLv5ImFdTK0O2WxY">
+</div>
+</td>
+<td class="p-md">
+<div class="font-medium text-on-surface group-hover:text-primary transition-colors">Lavender Moon</div>
+<div class="text-on-surface-variant text-xs mt-0.5">Chillwave Beats</div>
+</td>
+<td class="p-md text-right font-mono-metrics hidden sm:table-cell text-on-surface-variant">389</td>
+<td class="p-md text-right hidden md:table-cell">
+<div class="flex items-center justify-end gap-2">
+<span class="font-mono-metrics text-tertiary">99.1%</span>
+</div>
+</td>
+<td class="p-md text-center">
+<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-tertiary-container/20 text-tertiary border border-tertiary/20 text-[10px] font-bold uppercase tracking-wider">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span> Descargado
+                                </span>
+</td>
+<td class="p-md text-right">
+<button aria-label="Opciones" class="text-primary hover:text-primary-fixed transition-colors p-1">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination Footer -->
+<div class="mt-auto p-md border-t border-white/5 bg-surface-container-lowest/50 flex flex-col sm:flex-row items-center justify-between gap-md">
+<span class="text-body-md text-on-surface-variant">Mostrando 1-20 de 1,245 canciones</span>
+<div class="flex gap-1">
+<button class="w-8 h-8 flex items-center justify-center rounded bg-surface-container border border-outline-variant text-on-surface-variant hover:bg-white/5 hover:text-on-surface transition-colors disabled:opacity-50" disabled="">
+<span class="material-symbols-outlined text-sm">chevron_left</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded bg-primary-container text-white font-bold text-sm">1</button>
+<button class="w-8 h-8 flex items-center justify-center rounded bg-surface-container border border-outline-variant text-on-surface-variant hover:bg-white/5 hover:text-on-surface transition-colors text-sm">2</button>
+<button class="w-8 h-8 flex items-center justify-center rounded bg-surface-container border border-outline-variant text-on-surface-variant hover:bg-white/5 hover:text-on-surface transition-colors text-sm">3</button>
+<span class="w-8 h-8 flex items-center justify-center text-on-surface-variant">...</span>
+<button class="w-8 h-8 flex items-center justify-center rounded bg-surface-container border border-outline-variant text-on-surface-variant hover:bg-white/5 hover:text-on-surface transition-colors text-sm">62</button>
+<button class="w-8 h-8 flex items-center justify-center rounded bg-surface-container border border-outline-variant text-on-surface-variant hover:bg-white/5 hover:text-on-surface transition-colors">
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+
+
+<div id="snapdom-sandbox" data-snapdom-sandbox="true" aria-hidden="true" style="position: absolute; left: -9999px; top: -9999px; width: 0px; height: 0px; overflow: hidden;"></div></body></html>

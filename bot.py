@@ -25,7 +25,7 @@ app = Client(
 )
 
 db = DatabaseManager()
-engine = MusicDownloader(Config.DOWNLOAD_DIR, "cookies.txt")
+engine = MusicDownloader(Config.DOWNLOAD_DIR, Config.COOKIES_FILE)
 searcher = MusicSearcher() 
 user_results = {}
 
@@ -206,8 +206,13 @@ async def process_download(client, message, video_id, user_id):
             asyncio.create_task(auto_delete_panel(message, user_id))
             
     except Exception as e:
-        if status: await status.edit_text("❌ **Error: Esta pista no se encuentra disponible actualmente.**")
-        raise Exception(str(e))
+        logger.exception(f"Error procesando la descarga de {video_id}: {e}")
+        if status:
+            try:
+                await status.edit_text("❌ **Error: Esta pista no se encuentra disponible actualmente.**")
+            except Exception:
+                logger.exception("No se pudo actualizar el mensaje de error de descarga.")
+        return None
 
 init_admin_handlers(app, db)
 init_users_handlers(app, db, searcher, user_results, send_search_results, process_download)
@@ -223,22 +228,27 @@ async def dashboard_handler(request):
     )
 
 async def main():
-    await app.start()
-    logger.info("[ OK ] Bot iniciado exitosamente...")
+    Config.validate()
+    runner = None
 
-    # Inicia el servidor web
-    web_app = web.Application()
-    web_app.router.add_get('/', dashboard_handler)
-    runner = web.AppRunner(web_app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 8080)
-    await site.start()
-    
-    logger.info("🌐 Servidor web iniciado en puerto 8080")
-    await asyncio.Event().wait()
+    try:
+        await app.start()
+        logger.info("[ OK ] Bot iniciado exitosamente. Esperando mensajes...")
 
-    asyncio.create_task(watch_folder_loop())
-    await asyncio.Event().wait()
+        web_app = web.Application()
+        web_app.router.add_get('/', dashboard_handler)
+        runner = web.AppRunner(web_app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', 8080)
+        await site.start()
+        logger.info("🌐 Servidor web iniciado en puerto 8080")
+
+        await asyncio.Event().wait()
+    finally:
+        if runner:
+            await runner.cleanup()
+        if app.is_connected:
+            await app.stop()
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()

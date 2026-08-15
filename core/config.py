@@ -14,7 +14,23 @@ class Config:
 
     # Configuraciones de descarga
     DOWNLOAD_DIR = "downloads"
-    COOKIES_FILE = "cookies.txt"
+    COOKIES_FILE = os.getenv("YOUTUBE_COOKIES", "cookies.txt")
     
     # Límites (Opcional para escalar)
     MAX_SIMULTANEOUS_DOWNLOADS = 30
+
+    @classmethod
+    def validate(cls):
+        missing = []
+        if cls.API_ID <= 0:
+            missing.append("API_ID")
+        if not cls.API_HASH:
+            missing.append("API_HASH")
+        if not cls.BOT_TOKEN:
+            missing.append("BOT_TOKEN")
+        if cls.OWNER_ID <= 0:
+            missing.append("OWNER_ID")
+        if missing:
+            raise RuntimeError(
+                "Faltan variables obligatorias en .env: " + ", ".join(missing)
+            )
