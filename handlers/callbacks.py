@@ -5,7 +5,7 @@ import logging
 
 from pyrogram.errors import RPCError
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("allmusic.callbacks")
 db = user_results = edit_search_results = process_download = None
 
 

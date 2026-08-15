@@ -12,7 +12,7 @@ import yt_dlp
 
 class MusicSearcher:
     def __init__(self, cookies_path: str = ""):
-        self.logger = logging.getLogger("searcher")
+        self.logger = logging.getLogger("allmusic.searcher")
         self.cookies_path = cookies_path
 
     def _options(self) -> dict:

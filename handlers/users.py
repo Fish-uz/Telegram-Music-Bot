@@ -14,7 +14,7 @@ from pyrogram.types import KeyboardButton, ReplyKeyboardMarkup
 
 from core.config import Config
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("allmusic.users")
 db = searcher = resolver = user_results = send_search_results = process_download = None
 request_times = defaultdict(deque)
 user_warnings = defaultdict(int)
@@ -145,10 +145,12 @@ async def handle_message(client, message):
         return await message.reply_text("⚠️ Demasiadas solicitudes. Espera unos segundos.")
 
     db.register_user(user.id, user.username)
+    logger.info("Búsqueda recibida · user=%s source=message", user.id)
     status = await message.reply_text("🔎 Buscando…")
     try:
         resolved = await resolver.resolve(message.text)
         if resolved.source != "Texto":
+            logger.info("Enlace reconocido · user=%s source=%s", user.id, resolved.source)
             await status.edit_text(f"🔗 Enlace de {resolved.source} reconocido. Buscando `{resolved.query}`…")
         results = await searcher.search(resolved.query, Config.SEARCH_RESULTS_LIMIT)
         if not results:
@@ -158,6 +160,7 @@ async def handle_message(client, message):
             "filter": "title", "username": user.username or user.first_name,
             "created_at": time.monotonic(),
         }
+        logger.info("Búsqueda completada · user=%s results=%s", user.id, len(results))
         await status.delete()
         await send_search_results(message, resolved.query, results, 1, user.id)
     except Exception as error:

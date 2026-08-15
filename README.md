@@ -151,6 +151,16 @@ git diff --check
 
 Las pruebas cubren persistencia, caché de Telegram, subida simulada, clasificación de actualizaciones y resolución de consultas.
 
+## Logs
+
+AllMusic conserva tres archivos rotativos de hasta 10 MB, con cinco respaldos cada uno:
+
+- `logs/allmusic.log`: actividad útil, búsquedas, descargas, caché y warnings.
+- `logs/errors.log`: errores con archivo, línea y traceback completo.
+- `logs/audit.log`: ban, unban y broadcasts administrativos.
+
+La consola usa un formato compacto con hora, nivel, componente y mensaje. Pyrogram, aiohttp y asyncio solo muestran errores; yt-dlp conserva también sus warnings técnicos porque suelen requerir atención. Las consultas completas del usuario no se guardan en los logs operativos.
+
 ## Estructura
 
 ```text

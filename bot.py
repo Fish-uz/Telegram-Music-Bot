@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
+import time
 from collections import defaultdict
 
+from core.logger import logger
 import yt_dlp
 from aiohttp import web
 from pyrogram import Client
@@ -17,7 +18,6 @@ from pyrogram.types import (
 )
 
 from core.config import Config
-from core.logger import logger
 from dashboard import DashboardServer
 from database.manager import DatabaseManager
 from handlers.admin import init_admin_handlers
@@ -127,6 +127,7 @@ async def _progress_updater(status, queue: asyncio.Queue):
 
 
 async def process_download(client, message, video_id, user_id):
+    started_at = time.monotonic()
     status = None
     file_path = None
     progress_task = None
@@ -135,6 +136,7 @@ async def process_download(client, message, video_id, user_id):
     queued = True
     active = False
     runtime_state["queue_depth"] += 1
+    logger.info("Solicitud en cola · user=%s video=%s", user_id, video_id)
     try:
         async with lock:
             runtime_state["queue_depth"] = max(0, runtime_state["queue_depth"] - 1)
@@ -149,6 +151,10 @@ async def process_download(client, message, video_id, user_id):
                 try:
                     await client.send_audio(message.chat.id, file_id, caption=f"🎵 {title}")
                     db.register_download(user_id, username, video_id, title, cache_hit=True)
+                    logger.info(
+                        "Caché entregada · user=%s video=%s elapsed=%.2fs",
+                        user_id, video_id, time.monotonic() - started_at,
+                    )
                     if status:
                         await status.delete()
                     return True
@@ -194,13 +200,20 @@ async def process_download(client, message, video_id, user_id):
                 )
                 db.add_to_cache(video_id, sent.audio.file_id, title)
                 db.register_download(user_id, username, video_id, title, cache_hit=False)
+                logger.info(
+                    "Descarga entregada · user=%s video=%s elapsed=%.2fs",
+                    user_id, video_id, time.monotonic() - started_at,
+                )
                 if status:
                     await status.edit_text(f"✅ **Completado**\n{make_progress_bar(100)} 100%")
                     await asyncio.sleep(1)
                     await status.delete()
                 return True
     except Exception as error:
-        logger.exception("Error procesando %s", video_id)
+        logger.exception(
+            "Descarga fallida · user=%s video=%s elapsed=%.2fs",
+            user_id, video_id, time.monotonic() - started_at,
+        )
         db.register_failure(video_id, user_id, type(error).__name__, str(error))
         if status:
             try:
@@ -271,7 +284,7 @@ async def main():
         runtime_state["bot_online"] = True
         logger.info("AllMusic iniciado. Esperando mensajes.")
         dashboard = DashboardServer(db, runtime_state)
-        runner = web.AppRunner(dashboard.create_app())
+        runner = web.AppRunner(dashboard.create_app(), access_log=None)
         await runner.setup()
         await web.TCPSite(runner, Config.WEB_HOST, Config.WEB_PORT).start()
         logger.info("Dashboard disponible en %s:%s", Config.WEB_HOST, Config.WEB_PORT)

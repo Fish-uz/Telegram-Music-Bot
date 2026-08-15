@@ -16,15 +16,17 @@ ProgressHook = Callable[[float, str], None]
 
 class MusicDownloader:
     def __init__(self, download_dir: str, cookies_path: str):
-        self.logger = logging.getLogger("downloader")
+        self.logger = logging.getLogger("allmusic.downloader")
         self.download_dir = Path(download_dir)
         self.cookies_path = cookies_path
         self.download_dir.mkdir(parents=True, exist_ok=True)
 
     async def download(self, url: str, query: str, progress: ProgressHook | None = None):
-        self.logger.info("Iniciando descarga: %s", query)
+        self.logger.info("Descarga iniciada · query=%s", query)
         try:
-            return await asyncio.to_thread(self._sync_download_youtube, url, progress)
+            result = await asyncio.to_thread(self._sync_download_youtube, url, progress)
+            self.logger.info("Descarga convertida · title=%s", result[1])
+            return result
         except Exception as error:
             self.logger.warning("Descarga de YouTube fallida: %s", str(error)[:300])
             raise

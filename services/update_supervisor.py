@@ -26,7 +26,7 @@ class YtDlpUpdateSupervisor:
         self.failures: deque[float] = deque()
         self.last_check = 0.0
         self.lock = asyncio.Lock()
-        self.logger = logging.getLogger("yt_dlp_supervisor")
+        self.logger = logging.getLogger("allmusic.yt_dlp")
 
     def is_recoverable(self, error: Exception) -> bool:
         message = str(error).lower()
