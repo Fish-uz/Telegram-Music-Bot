@@ -1,130 +1,60 @@
-"""
-Módulo encargado de la búsqueda de contenido multimedia en diversas plataformas.
-Gestiona la extracción de metadatos y la obtención de IDs de listas de reproducción.
-"""
+"""Búsqueda ligera de música y playlists exclusivamente en YouTube."""
 
-import yt_dlp
+from __future__ import annotations
+
 import asyncio
 import logging
+import os
+import shutil
+
+import yt_dlp
+
 
 class MusicSearcher:
-    """
-    Clase que implementa búsquedas de música exclusivamente en YouTube.
-    Permite obtener resultados de búsqueda y procesar enlaces de listas de reproducción.
-    """
-    
-    def __init__(self):
-        # Logger específico para rastrear el proceso de búsqueda
+    def __init__(self, cookies_path: str = ""):
         self.logger = logging.getLogger("searcher")
-        self.opts = {
-            'extract_flat': True,       # Solo extrae metadatos, no procesa el video/audio
-            'quiet': True,              # Silencia la salida estándar de yt-dlp
-            'no_warnings': True,        # Ignora avisos no críticos
-            'playlist_items': '1-60',   # Límite de ítems a procesar en búsquedas
-        }
+        self.cookies_path = cookies_path
 
-    async def search(self, query: str, limit=60):
-        """
-        Realiza una búsqueda secuencial en múltiples fuentes hasta encontrar resultados.
-        
-        Args:
-            query (str): Término de búsqueda (canción, artista, etc.).
-            limit (int): Cantidad máxima de resultados a retornar.
+    def _options(self) -> dict:
+        opts = {"extract_flat": True, "quiet": True, "no_warnings": True}
+        if self.cookies_path and os.path.isfile(self.cookies_path):
+            opts["cookiefile"] = self.cookies_path
+        if shutil.which("deno"):
+            opts["js_runtimes"] = {"deno": {}}
+        elif shutil.which("node"):
+            opts["js_runtimes"] = {"node": {}}
+        return opts
 
-        Returns:
-            list: Lista de diccionarios con metadatos de las canciones encontradas.
-        """
-        # YouTube es la única fuente soportada por el flujo de descarga.
-        sources = [
-            (f"ytsearch{limit}:", "YouTube"),
-        ]
-
-        self.logger.info(f"--- Iniciando búsqueda global: '{query}' ---")
-
-        for prefix, source_name in sources:
-            try:
-                self.logger.info(f"Consultando {source_name}...")
-                # Ejecutamos la búsqueda síncrona en un hilo separado para no bloquear el bot
-                results = await asyncio.to_thread(self._sync_search, f"{prefix}{query}")
-                
-                if results:
-                    self.logger.info(f"Se encontraron {len(results)} resultados en {source_name}")
-                    return results
-                
-                self.logger.debug(f"Sin resultados en {source_name}, probando siguiente fuente...")
-                
-            except Exception as e:
-                self.logger.error(f"Error durante la búsqueda en {source_name}: {str(e)[:100]}")
-                continue 
-
-        self.logger.warning(f"Búsqueda finalizada: No se hallaron resultados para '{query}' en ninguna plataforma.")
-        return []
-    
-    async def get_playlist_ids(self, url: str, limit=10):
-        """
-        Extrae los identificadores únicos de los videos dentro de una playlist.
-        
-        Args:
-            url (str): Enlace a la lista de reproducción de YouTube.
-            limit (int): Número máximo de canciones a extraer.
-
-        Returns:
-            list: Lista de IDs de video (strings).
-        """
-        self.logger.info(f"Iniciando extracción de IDs de playlist: {url}")
-        
-        ydl_opts = {
-            'extract_flat': True,
-            'force_generic_extractor': True,
-            'playlistend': limit,
-        }
-        
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                loop = asyncio.get_event_loop()
-                # Extracción de info de forma asíncrona
-                info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=False))
-                
-                if 'entries' in info:
-                    # Filtramos entradas nulas para evitar errores en el procesamiento posterior
-                    ids = [entry['id'] for entry in info['entries'] if entry]
-                    self.logger.info(f"Playlist procesada: {len(ids)} IDs obtenidos.")
-                    return ids
-                    
-                self.logger.warning("La URL proporcionada no contiene entradas válidas.")
-                return []
-                
-        except Exception as e:
-            self.logger.error(f"Error crítico extrayendo playlist: {str(e)}", exc_info=True)
+    async def search(self, query: str, limit: int = 15):
+        query = " ".join(query.split())[:200]
+        if not query:
             return []
+        target = query if query.startswith(("https://youtube.com/", "https://www.youtube.com/", "https://youtu.be/")) else f"ytsearch{limit}:{query}"
+        return await asyncio.to_thread(self._sync_search, target)
 
-    def _sync_search(self, search_target: str):
-        """
-        Lógica interna síncrona para interactuar con yt-dlp.
-        
-        Args:
-            search_target (str): Cadena de búsqueda formateada para yt-dlp.
+    def _sync_search(self, target: str):
+        with yt_dlp.YoutubeDL(self._options()) as ydl:
+            info = ydl.extract_info(target, download=False)
+        entries = (info or {}).get("entries")
+        if entries is None and info:
+            entries = [info]
+        results = []
+        for entry in entries or []:
+            if not entry or not entry.get("id"):
+                continue
+            results.append({
+                "id": entry["id"],
+                "title": (entry.get("title") or "Sin título")[:80],
+                "duration": entry.get("duration"),
+                "uploader": entry.get("uploader") or "Artista desconocido",
+            })
+        return results
 
-        Returns:
-            list: Resultados formateados con ID, Título, Duración y Artista.
-        """
-        with yt_dlp.YoutubeDL(self.opts) as ydl:
-            info = ydl.extract_info(search_target, download=False)
-            results = []
-            
-            if 'entries' not in info:
-                return []
+    async def get_playlist_ids(self, url: str, limit: int = 10):
+        return await asyncio.to_thread(self._sync_playlist, url, limit)
 
-            for entry in info['entries']:
-                if not entry: 
-                    continue
-                
-                # Limpieza y formateo de metadatos para la interfaz del bot
-                results.append({
-                    'id': entry.get('id'),
-                    'title': entry.get('title', 'Sin título')[:50], # Límite para botones de Telegram
-                    'duration': entry.get('duration'),
-                    'uploader': entry.get('uploader', 'Artista desconocido')
-                })
-                
-            return results
+    def _sync_playlist(self, url: str, limit: int):
+        opts = self._options() | {"playlistend": limit, "extract_flat": "in_playlist"}
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        return [entry["id"] for entry in (info or {}).get("entries", []) if entry and entry.get("id")]

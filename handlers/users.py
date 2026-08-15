@@ -1,232 +1,193 @@
+"""Comandos y búsqueda para usuarios de AllMusic."""
+
+from __future__ import annotations
+
 import asyncio
 import logging
-import time
 import platform
-from pyrogram import Client, filters
+import time
+from collections import defaultdict, deque
+
+from pyrogram import filters
+from pyrogram.errors import RPCError
+from pyrogram.types import KeyboardButton, ReplyKeyboardMarkup
+
 from core.config import Config
 
 logger = logging.getLogger(__name__)
+db = searcher = resolver = user_results = send_search_results = process_download = None
+request_times = defaultdict(deque)
+user_warnings = defaultdict(int)
 
-db = None
-searcher = None
-user_results = None
-send_search_results = None
-process_download = None
 
-# Sistemas de control en memoria
-user_requests = {}  # { user_id: [timestamps] }
-user_warnings = {}  # { user_id: cantidad_de_advertencias }
+def _menu():
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton("🏆 Top global"), KeyboardButton("👤 Mi perfil")],
+         [KeyboardButton("📜 Mi historial"), KeyboardButton("❓ Ayuda")]],
+        resize_keyboard=True,
+    )
+
+
+async def start_command(client, message):
+    db.register_user(message.from_user.id, message.from_user.username)
+    await message.reply_text(
+        "🎵 **Bienvenido a AllMusic**\n\n"
+        "Escribe una canción, artista o pega un enlace de Spotify, Deezer o YouTube. "
+        "Te mostraremos opciones y recibirás el audio directamente aquí.",
+        reply_markup=_menu(),
+    )
+
+
+async def help_command(client, message):
+    if db.is_user_banned(message.from_user.id): return
+    await message.reply_text(
+        "**Cómo usar AllMusic**\n\n"
+        "• Escribe el nombre de una canción o artista.\n"
+        "• Pega un enlace de Spotify o Deezer para encontrar su equivalente en YouTube.\n"
+        "• Usa `/playlist URL` para descargar hasta el límite configurado.\n\n"
+        "**Comandos**\n"
+        "`/top` ranking global · `/perfil` estadísticas · `/historial` últimas pistas · "
+        "`/soporte mensaje` contacto con administración."
+    )
+
 
 async def show_top(client, message):
     if db.is_user_banned(message.from_user.id): return
-    top_songs = db.get_top_songs(10)
-    if not top_songs: return await message.reply_text("📉 Sin datos aún.")
-    text = "🏆 **TOP 10 Más Escuchadas:**\n\n"
-    for i, (title, count) in enumerate(top_songs, 1):
-        text += f"{i}. **{title}** — {count} veces\n"
+    top = db.get_top_songs(10)
+    if not top:
+        return await message.reply_text("📉 Todavía no hay descargas en el ranking.")
+    text = "🏆 **Top global de AllMusic**\n\n" + "\n".join(
+        f"{index}. **{title}** — {count}" for index, (title, count) in enumerate(top, 1)
+    )
     await message.reply_text(text)
+
 
 async def show_profile(client, message):
-    user_id = message.from_user.id
-    if db.is_user_banned(user_id): return
-    cursor = db.conn.cursor()
-    cursor.execute('''
-        SELECT u.total_downloads, u.last_song_title, u.last_download_date,
-        (SELECT MIN(date) FROM history WHERE user_id = u.user_id)
-        FROM users u WHERE u.user_id = ?
-    ''', (user_id,))
-    data = cursor.fetchone()
-    if not data: return await message.reply_text("👤 Sin estadísticas.")
-    total, last_title, last_date, first_date = data
-    text = (
-        f"👤 **Tu Perfil Musical**\n\n"
-        f"📊 **Descargas totales:** `{total}`\n"
-        f"🎵 **Última pista:** `{last_title}`\n"
-        f"⚡ **Actividad:** `{last_date}`"
+    if db.is_user_banned(message.from_user.id): return
+    profile = db.get_user_profile(message.from_user.id)
+    if not profile:
+        return await message.reply_text("No hay estadísticas todavía.")
+    await message.reply_text(
+        "👤 **Tu perfil musical**\n\n"
+        f"Descargas: `{profile['total_downloads']}`\n"
+        f"Última pista: `{profile['last_song_title'] or 'Ninguna'}`\n"
+        f"Actividad: `{profile['last_download_date'] or 'Sin actividad'}`"
     )
-    await message.reply_text(text)
+
 
 async def show_history(client, message):
-    """Muestra las últimas 5 canciones descargadas por el usuario."""
-    user_id = message.from_user.id
-    if db.is_user_banned(user_id): return
-    
-    cursor = db.conn.cursor()
-    # Buscamos en el historial las últimas 5 descargas únicas de este usuario
-    cursor.execute('''
-        SELECT DISTINCT title FROM history 
-        WHERE user_id = ? 
-        ORDER BY date DESC LIMIT 5
-    ''', (user_id,))
-    rows = cursor.fetchall()
-    
-    if not rows:
-        return await message.reply_text("📋 **Tu historial está vacío.** ¡Empieza a buscar música ahora!")
-        
-    text = "**Tus últimas 5 descargas recientes:**\n\n"
-    for i, row in enumerate(rows, 1):
-        text += f"{i}️⃣ `{row[0]}`\n"
-    text += "\n_Puedes volver a escribir el nombre de cualquiera de ellas para descargarlas de nuevo._"
-    await message.reply_text(text)
-
-async def start_command(client, message):
-    user_id = message.from_user.id
-    db.register_user(user_id)
-    await help_command(client, message)
-    
-async def help_command(client, message):
     if db.is_user_banned(message.from_user.id): return
-    text = (
-        "🎵 **Guía de Uso Rápido**\n\n"
-        "1️⃣ Escribe el nombre de la canción o artista directamente.\n"
-        "2️⃣ Usa los botones del panel para cambiar de página o descargar.\n"
-        "3️⃣ Filtros: Usa 'Title/Artista' para ordenar los resultados. (Opcional)\n"
-        "4️⃣ Calidad: Activa 'Lossless' para mayor fidelidad. (Opcional)\n\n"
-        "📜 **Comandos públicos:**\n"
-        "• `/top` — Lo más escuchado en el bot.\n"
-        "• `/perfil` — Tus números personales.\n"
-        "• `/historial` — Tus últimas 5 canciones.\n"
-        "• `/soporte [texto]` — Contactar al administrador."
-    )
-    await message.reply_text(text)
+    rows = db.get_user_history(message.from_user.id, 5)
+    if not rows:
+        return await message.reply_text("📋 Tu historial está vacío.")
+    await message.reply_text("📜 **Tus últimas pistas**\n\n" + "\n".join(
+        f"{index}. `{row['title']}`" for index, row in enumerate(rows, 1)
+    ))
 
-async def soporte_command(client, message):
-    user_id = message.from_user.id
-    if db.is_user_banned(user_id): return
+
+async def support_command(client, message):
+    if db.is_user_banned(message.from_user.id): return
     if len(message.command) < 2:
-        return await message.reply_text("Uso: `/soporte [Tu mensaje]`")
-
-    mensaje_usuario = message.text.split(None, 1)[1]
-    username = f" (@{message.from_user.username})" if message.from_user.username else ""
-    
-    reporte = (
-        f"**[SOPORTE]** de {message.from_user.first_name}{username}\n"
-        f"ID: `{user_id}`\n Mensaje: _{mensaje_usuario}_"
-    ) 
+        return await message.reply_text("Uso: `/soporte describe tu problema`")
+    text = message.text.split(None, 1)[1]
+    user = message.from_user
     try:
-        await client.send_message(chat_id=Config.OWNER_ID, text=reporte)
-        await message.reply_text("Mensaje enviado al administrador.")
-    except Exception:
-        await message.reply_text("Error al enviar.")
+        await client.send_message(
+            Config.OWNER_ID,
+            f"🛟 **Soporte AllMusic**\nUsuario: {user.first_name} (@{user.username or 'sin_usuario'})\n"
+            f"ID: `{user.id}`\nMensaje: {text}",
+        )
+        await message.reply_text("✅ Mensaje enviado a administración.")
+    except RPCError:
+        logger.exception("No se pudo entregar una solicitud de soporte")
+        await message.reply_text("No se pudo entregar el mensaje. Intenta más tarde.")
+
 
 async def playlist_download(client, message):
-    user_id = message.from_user.id
-    if db.is_user_banned(user_id): return
-    if len(message.command) < 2: return await message.reply_text("Uso: `/playlist URL`")
+    if db.is_user_banned(message.from_user.id): return
+    if len(message.command) < 2:
+        return await message.reply_text("Uso: `/playlist URL_DE_YOUTUBE`")
+    status = await message.reply_text("🔎 Analizando playlist…")
+    ids = await searcher.get_playlist_ids(message.command[1], Config.PLAYLIST_LIMIT)
+    if not ids:
+        return await status.edit_text("❌ La playlist está vacía, no es pública o no es válida.")
+    await status.edit_text(f"📚 Se procesarán {len(ids)} pistas.")
+    for index, video_id in enumerate(ids, 1):
+        await status.edit_text(f"📚 Playlist: pista {index}/{len(ids)}")
+        await process_download(client, message, video_id, message.from_user.id)
+    await status.edit_text("✅ Playlist procesada.")
 
-    url = message.command[1]
-    status_msg = await message.reply_text("Procesando lista (Máx 10)...")
-    try:
-        ids = await searcher.get_playlist_ids(url, limit=10) 
-        if not ids: return await status_msg.edit("❌ Error. Lista vacía o privada.")
-        await status_msg.edit(f"Descargando {len(ids)} canciones...")
-        for vid_id in ids:
-            await process_download(client, message, vid_id, user_id)
-            await asyncio.sleep(2)
-    except Exception as e:
-        await status_msg.edit(f"Error: {str(e)[:50]}")
+
+def _allowed(user_id: int) -> bool:
+    now = time.monotonic()
+    timestamps = request_times[user_id]
+    while timestamps and now - timestamps[0] > 10:
+        timestamps.popleft()
+    timestamps.append(now)
+    return len(timestamps) <= 8
+
 
 async def handle_message(client, message):
-    user_id = message.from_user.id
-    username = message.from_user.username or "SinNick" # Captura el nick o pone un valor por defecto
-    query = message.text
-    if db.is_user_banned(user_id): return
+    user = message.from_user
+    if db.is_user_banned(user.id): return
+    menu_actions = {
+        "🏆 Top global": show_top, "👤 Mi perfil": show_profile,
+        "📜 Mi historial": show_history, "❓ Ayuda": help_command,
+    }
+    if message.text in menu_actions:
+        return await menu_actions[message.text](client, message)
+    if not _allowed(user.id):
+        user_warnings[user.id] += 1
+        if user_warnings[user.id] >= 3:
+            db.set_user_ban(user.id, True)
+            await client.send_message(Config.OWNER_ID, f"🚫 Auto-ban anti-flood: `{user.id}`")
+            return await message.reply_text("Tu acceso fue bloqueado por solicitudes abusivas.")
+        return await message.reply_text("⚠️ Demasiadas solicitudes. Espera unos segundos.")
 
-    logger.info(f"🔎 Búsqueda de '{query}' realizada por Usuario: {message.from_user.first_name} ID: {user_id} | (@{username})")
-
-    # --- ALGORITMO ANTI-FLOOD CON AUTO-BANEO (3 OPORTUNIDADES) ---
-    now = time.time()
-    if user_id not in user_requests: user_requests[user_id] = []
-    
-    user_requests[user_id] = [t for t in user_requests[user_id] if now - t < 10]
-    user_requests[user_id].append(now)
-    
-    if len(user_requests[user_id]) > 15:
-        user_warnings[user_id] = user_warnings.get(user_id, 0) + 1
-        oportunidades_restantes = 3 - user_warnings[user_id]
-        
-        if oportunidades_restantes <= 0:
-            db.set_user_ban(user_id, True)
-            logger.critical(f"AUTO-BAN: Usuario {user_id} fue bloqueado permanentemente por ignorar el Anti-Flood.")
-            await client.send_message(
-                chat_id=Config.OWNER_ID, 
-                text=f"**[AUTO-BAN DE SEGURIDAD]**\nEl usuario `{user_id}` ha sido bloqueado automáticamente por ataque de Spam continuo."
-            )
-            return await message.reply_text("**Has sido bloqueado permanentemente del bot debido al abuso continuo del sistema de búsquedas.**")
-        
-        logger.warning(f"Anti-Flood activado para {user_id} (Advertencia {user_warnings[user_id]}/3)")
-        return await message.reply_text(
-            f"**¡Detección de Spam!** Estás enviando demasiadas solicitudes.\n"
-            f"Oportunidades antes de baneo permanente: **{oportunidades_restantes}**"
-        )
-
-    status_msg = await message.reply_text("🔎 Buscando...")
+    db.register_user(user.id, user.username)
+    status = await message.reply_text("🔎 Buscando…")
     try:
-        results = await searcher.search(query)
+        resolved = await resolver.resolve(message.text)
+        if resolved.source != "Texto":
+            await status.edit_text(f"🔗 Enlace de {resolved.source} reconocido. Buscando `{resolved.query}`…")
+        results = await searcher.search(resolved.query, Config.SEARCH_RESULTS_LIMIT)
         if not results:
-            await status_msg.edit("No se encontraron resultados.")
+            return await status.edit_text("No encontramos resultados. Prueba con artista y título.")
+        user_results[user.id] = {
+            "query": resolved.query, "source": resolved.source, "results": results,
+            "filter": "title", "username": user.username or user.first_name,
+            "created_at": time.monotonic(),
+        }
+        await status.delete()
+        await send_search_results(message, resolved.query, results, 1, user.id)
+    except Exception as error:
+        logger.exception("Error buscando %r", message.text)
+        await status.edit_text(f"❌ No se pudo procesar la búsqueda: {str(error)[:120]}")
 
-            logger.warning(f"Búsqueda fallida: '{query}' por {message.from_user.first_name} (@{username}) | ID: {user_id}")
-            
-            # NOTIFICACIÓN DE FALLO AL ADMIN
-            await client.send_message(
-                chat_id=Config.OWNER_ID,
-                text=f"**[ALERTA DE BÚSQUEDA FALLIDA]**\n🆔 Usuario: `{user_id}`\n🔍 Query: `{query}`"
-            )
-            logger.warning(f"Búsqueda fallida registrada: '{query}' por usuario {user_id}")
-            return
-
-        user_results[user_id] = {"query": query, "results": results, "filter": "title", "lossless": False}
-        await status_msg.delete()
-        await send_search_results(message, query, results, page=1, user_id=user_id)
-    except Exception as e:
-        logger.error(f"Error en búsqueda: {e}")
-        await status_msg.edit(f"❌ Error en búsqueda.")
 
 async def dashboard_command(client, message):
-    # Verificación de seguridad
     if message.from_user.id != Config.OWNER_ID:
         return await message.reply_text("🚫 Acceso denegado.")
-
-    # Obtenemos los datos (Asegúrate de tener estos métodos en tu DatabaseManager)
-    total_users = db.get_total_users()
-    total_downloads = db.get_total_downloads()
-    total_banned = db.get_total_banned()
-    failed_downloads = db.get_failed_downloads()
-    os_info = f"{platform.system()} {platform.release()}"
-    
-    text = (
-        "📊 **Dashboard del Sistema**\n\n"
-        f"👥 **Usuarios registrados:** `{total_users}`\n"
-        f"📥 **Descargas totales:** `{total_downloads}`\n"
-        f"🚫 **Usuarios baneados:** `{total_banned}`\n"
-        f"⚠️ **Descargas fallidas:** `{failed_downloads}`\n"
-        f"🖥 **Sistema Operativo:** `{os_info}`\n\n"
-        "✅ _Estado: Online_"
+    stats = db.get_dashboard_stats()
+    await message.reply_text(
+        "📊 **AllMusic · Estado**\n\n"
+        f"Usuarios: `{stats['total_users']}`\nDescargas: `{stats['total_downloads']}`\n"
+        f"Caché: `{stats['cached_songs']}`\nFallos: `{stats['failed_downloads']}`\n"
+        f"Sistema: `{platform.system()} {platform.release()}`"
     )
-    await message.reply_text(text)
 
-def init_users_handlers(app_instance, shared_db, shared_searcher, shared_results, fn_send, fn_dl):
-    global db, searcher, user_results, send_search_results, process_download
-    db = shared_db
-    searcher = shared_searcher
-    user_results = shared_results
-    send_search_results = fn_send
-    process_download = fn_dl
 
-    app_instance.on_message(filters.command("start") & filters.private)(start_command)
-    app_instance.on_message(filters.command("top") & filters.private)(show_top)
-    app_instance.on_message(filters.command("perfil") & filters.private)(show_profile)
-    app_instance.on_message(filters.command("historial") & filters.private)(show_history)
-    app_instance.on_message(filters.command("help") & filters.private)(help_command)
-    app_instance.on_message(filters.command("soporte") & filters.private)(soporte_command)
-    app_instance.on_message(filters.command("playlist") & filters.private)(playlist_download)
-    app_instance.on_message(filters.command("dashboard") & filters.private)(dashboard_command)
-    
-    app_instance.on_message(
-        filters.text & filters.private & 
-        ~filters.command([
-            "start", "help", "top", "perfil", "historial", "soporte", "playlist", 
-            "admin", "broadcast", "banlist", "ban", "unban" , "dashboard"
-        ])
-    )(handle_message)
+def init_users_handlers(app_instance, shared_db, shared_searcher, shared_resolver,
+                        shared_results, fn_send, fn_download):
+    global db, searcher, resolver, user_results, send_search_results, process_download
+    db, searcher, resolver = shared_db, shared_searcher, shared_resolver
+    user_results, send_search_results, process_download = shared_results, fn_send, fn_download
+    commands = {
+        "start": start_command, "help": help_command, "top": show_top,
+        "perfil": show_profile, "historial": show_history, "soporte": support_command,
+        "playlist": playlist_download, "dashboard": dashboard_command,
+    }
+    for name, handler in commands.items():
+        app_instance.on_message(filters.command(name) & filters.private)(handler)
+    excluded = list(commands) + ["admin", "broadcast", "ban", "unban"]
+    app_instance.on_message(filters.text & filters.private & ~filters.command(excluded))(handle_message)

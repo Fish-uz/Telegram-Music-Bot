@@ -9,6 +9,7 @@ env
 !.env.example
 *.session
 *.session-journal
+sessions/
 cookies.txt
 youtube_cookies.txt
 config.json

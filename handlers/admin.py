@@ -1,108 +1,81 @@
+"""Controles privados del propietario de AllMusic."""
+
 import asyncio
 import logging
-from pyrogram import Client, filters
+
+from pyrogram import filters
+from pyrogram.errors import RPCError
+
 from core.config import Config
 
 logger = logging.getLogger(__name__)
 db = None
 
-async def admin_panel(client, message):
-    if message.from_user.id != Config.OWNER_ID: return
-    
-    cursor = db.conn.cursor()
-    try:
-        cursor.execute("SELECT COUNT(*) FROM users")
-        total_usuarios = cursor.fetchone()[0]
-        cursor.execute("SELECT SUM(total_downloads) FROM users")
-        total_descargas = cursor.fetchone()[0] or 0
-        cursor.execute("SELECT COUNT(*) FROM cache")
-        total_cache = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM users WHERE is_banned = 1")
-        total_baneados = cursor.fetchone()[0]
-    except Exception as e:
-        logger.error(f"Error al recopilar estadísticas: {e}")
-        return await message.reply_text("Error en la base de datos.")
 
-    dashboard_text = (
-        "**[DASHBOARD DE ADMINISTRACIÓN]**\n"
-        "───────────────────────────\n\n"
-        f"**Usuarios Totales:** `{total_usuarios}`\n"
-        f"**Descargas Totales:** `{total_descargas}` canciones\n"
-        f"**Pistas en Caché:** `{total_cache}`\n"
-        f"**Usuarios Baneados:** `{total_baneados}`\n\n"
-        "───────────────────────────\n"
-        "**Comandos de Control Remoto:**\n"
-        "• `/ban [ID]` (o respondiendo a un mensaje) — Banear\n"
-        "• `/unban [ID]` — Desbanear usuario\n"
-        "• `/broadcast [mensaje]` — Anuncio global"
+def owner_only(message) -> bool:
+    return bool(message.from_user and message.from_user.id == Config.OWNER_ID)
+
+
+async def admin_panel(client, message):
+    if not owner_only(message): return
+    stats = db.get_dashboard_stats()
+    await message.reply_text(
+        "🛠 **AllMusic · Administración**\n\n"
+        f"Usuarios: `{stats['total_users']}`\nDescargas: `{stats['total_downloads']}`\n"
+        f"Pistas en caché: `{stats['cached_songs']}`\nBaneados: `{stats['banned_users']}`\n"
+        f"Fallos: `{stats['failed_downloads']}`\n\n"
+        "`/ban ID` · `/unban ID` · `/broadcast mensaje` · `/dashboard`"
     )
-    await message.reply_text(dashboard_text)
+
+
+def _target_id(message):
+    if len(message.command) > 1:
+        try: return int(message.command[1])
+        except ValueError: return None
+    return message.reply_to_message.from_user.id if message.reply_to_message else None
+
 
 async def ban_user(client, message):
-    if message.from_user.id != Config.OWNER_ID: return
-    target_id = None
+    if not owner_only(message): return
+    target = _target_id(message)
+    if not target:
+        return await message.reply_text("Uso: `/ban ID` o responde a un mensaje con `/ban`.")
+    db.set_user_ban(target, True)
+    await message.reply_text(f"🚫 Usuario `{target}` baneado.")
 
-    # Opción 1: Viene por ID directo (/ban 12345)
-    if len(message.command) > 1:
-        try:
-            target_id = int(message.command[1])
-        except ValueError:
-            return await message.reply_text("¡ERROR! El ID debe ser un número entero.")
-    # Opción 2: Viene respondiendo a un mensaje
-    elif message.reply_to_message:
-        target_id = message.reply_to_message.from_user.id
-
-    if not target_id:
-        return await message.reply_text("📋 **Modo de uso:** `/ban [ID_Usuario]` o responde a su mensaje con `/ban`")
-
-    db.set_user_ban(target_id, True)
-    logger.info(f"ADMIN: El usuario {target_id} ha sido baneado de forma remota.")
-    await message.reply_text(f"**Usuario `{target_id}` baneado exitosamente.**")
 
 async def unban_user(client, message):
-    if message.from_user.id != Config.OWNER_ID: return
-    if len(message.command) < 2:
-        return await message.reply_text("**Modo de uso:** `/unban [ID_Usuario]`")
-    
-    try:
-        target_id = int(message.command[1])
-    except ValueError:
-        return await message.reply_text("¡ERROR! El ID debe ser numérico.")
+    if not owner_only(message): return
+    target = _target_id(message)
+    if not target:
+        return await message.reply_text("Uso: `/unban ID`.")
+    db.set_user_ban(target, False)
+    await message.reply_text(f"✅ Usuario `{target}` desbaneado.")
 
-    db.set_user_ban(target_id, False)
-    logger.info(f"ADMIN: El usuario {target_id} ha sido desbaneado.")
-    await message.reply_text(f"✅ **Usuario `{target_id}` desbaneado.**")
 
 async def broadcast_command(client, message):
-    if message.from_user.id != Config.OWNER_ID: return
+    if not owner_only(message): return
     if len(message.command) < 2:
-        return await message.reply_text("**Modo de uso:** `/broadcast [Mensaje]`")
-
-    mensaje_global = message.text.split(None, 1)[1]
-    cursor = db.conn.cursor()
-    cursor.execute("SELECT DISTINCT user_id FROM users")
-    usuarios = cursor.fetchall()
-
-    if not usuarios: return await message.reply_text("No hay usuarios.")
-
-    total = len(usuarios)
-    status_msg = await message.reply_text(f"Enviando broadcast a `{total}` usuarios...")
-    exitosos, fallidos = 0, 0
-
-    for row in usuarios:
+        return await message.reply_text("Uso: `/broadcast mensaje`.")
+    text = message.text.split(None, 1)[1]
+    users = db.list_active_user_ids()
+    status = await message.reply_text(f"Enviando a {len(users)} usuarios…")
+    success = failed = 0
+    for user_id in users:
         try:
-            await client.send_message(chat_id=row[0], text=mensaje_global)
-            exitosos += 1
-        except Exception:
-            fallidos += 1
-        if (exitosos + fallidos) % 3 == 0: await asyncio.sleep(1)
+            await client.send_message(user_id, text)
+            success += 1
+        except RPCError:
+            failed += 1
+        await asyncio.sleep(0.05)
+    await status.edit_text(f"✅ Broadcast terminado\nÉxitos: `{success}` · Fallos: `{failed}`")
 
-    await status_msg.edit_text(f"**Broadcast Completo**\n\n Éxito: `{exitosos}`\n Fallidos: `{fallidos}`")
 
 def init_admin_handlers(app_instance, shared_db):
     global db
     db = shared_db
-    app_instance.on_message(filters.command("admin") & filters.private)(admin_panel)
-    app_instance.on_message(filters.command("ban") & filters.private)(ban_user)
-    app_instance.on_message(filters.command("unban") & filters.private)(unban_user)
-    app_instance.on_message(filters.command("broadcast") & filters.private)(broadcast_command)
+    for name, handler in {
+        "admin": admin_panel, "ban": ban_user,
+        "unban": unban_user, "broadcast": broadcast_command,
+    }.items():
+        app_instance.on_message(filters.command(name) & filters.private)(handler)

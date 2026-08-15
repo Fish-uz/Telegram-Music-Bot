@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["python310", "ffmpeg"]
+nixPkgs = ["python312", "ffmpeg", "nodejs_24"]
 
 [phases.build]
 cmds = ["pip install -r requirements.txt"]

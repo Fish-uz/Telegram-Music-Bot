@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import sqlite3
 
 from bot import main
 from core.logger import logger
@@ -16,6 +17,12 @@ def start_bot():
         loop.run_until_complete(main())
     except KeyboardInterrupt:
         log.warning("Bot detenido manualmente.")
+    except sqlite3.OperationalError as error:
+        if "locked" in str(error).lower():
+            raise RuntimeError(
+                "La sesión está bloqueada. Cierra la otra instancia de AllMusic antes de iniciar otra."
+            ) from error
+        raise
     except Exception as e:
         log.critical(f"Error fatal: {str(e)}", exc_info=True)
         raise

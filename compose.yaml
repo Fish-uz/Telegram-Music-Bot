@@ -1,0 +1,16 @@
+services:
+  allmusic:
+    build: .
+    image: allmusic-test:local
+    container_name: allmusic-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SESSION_NAME: /app/sessions/music_session
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./database:/app/database
+      - ./downloads:/app/downloads
+      - ./sessions:/app/sessions
+      - ./youtube_cookies.txt:/app/youtube_cookies.txt:ro

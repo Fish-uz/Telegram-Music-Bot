@@ -1,255 +1,294 @@
+"""Composición y ciclo de vida de AllMusic."""
+
+from __future__ import annotations
+
 import asyncio
+import logging
 import os
-from pyrogram import Client, filters
+from collections import defaultdict
+
+import yt_dlp
+from aiohttp import web
+from pyrogram import Client
+from pyrogram.errors import RPCError
 from pyrogram.types import (
-    InlineKeyboardMarkup, InlineKeyboardButton, 
-    InlineQuery, InlineQueryResultArticle, InputTextMessageContent
+    InlineKeyboardButton, InlineKeyboardMarkup, InlineQuery,
+    InlineQueryResultArticle, InputTextMessageContent,
 )
 
 from core.config import Config
-from services.downloader import MusicDownloader
-from services.searcher import MusicSearcher  
-from database.manager import DatabaseManager
 from core.logger import logger
-from aiohttp import web
-
+from dashboard import DashboardServer
+from database.manager import DatabaseManager
 from handlers.admin import init_admin_handlers
-from handlers.users import init_users_handlers
 from handlers.callbacks import init_callbacks_handlers
+from handlers.users import init_users_handlers
+from services.downloader import MusicDownloader
+from services.link_resolver import MusicLinkResolver
+from services.searcher import MusicSearcher
+from services.update_supervisor import YtDlpUpdateSupervisor
 
 app = Client(
-    "music_session",
-    api_id=Config.API_ID,
-    api_hash=Config.API_HASH,
-    bot_token=Config.BOT_TOKEN
+    Config.SESSION_NAME, api_id=Config.API_ID, api_hash=Config.API_HASH,
+    bot_token=Config.BOT_TOKEN,
 )
-
-db = DatabaseManager()
+db = DatabaseManager(Config.DATABASE_PATH)
 engine = MusicDownloader(Config.DOWNLOAD_DIR, Config.COOKIES_FILE)
-searcher = MusicSearcher() 
-user_results = {}
+searcher = MusicSearcher(Config.COOKIES_FILE)
+link_resolver = MusicLinkResolver()
+update_supervisor = YtDlpUpdateSupervisor(Config.UPDATE_FAILURE_THRESHOLD)
+user_results: dict[int, dict] = {}
+download_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+download_slots = asyncio.Semaphore(Config.MAX_SIMULTANEOUS_DOWNLOADS)
+runtime_state = {
+    "bot_online": False, "active_downloads": 0, "queue_depth": 0,
+    "yt_dlp_version": yt_dlp.version.__version__,
+}
 
-TXT_DIR = "downloads/archivostxt"
-BACKUP_CHAT_ID = -1003950302665  
 
-# --- INGESTOR MASIVO OCULTO (FolderWatcher) ---
-async def watch_folder_loop():
-    if not os.path.exists(TXT_DIR): os.makedirs(TXT_DIR, exist_ok=True)
-    while True:
-        try:
-            for file_name in os.listdir(TXT_DIR):
-                if file_name.endswith(".txt"):
-                    file_path = os.path.join(TXT_DIR, file_name)
-                    logger.info(f"Ingestor procesando archivo silencioso: {file_name}")
-                    with open(file_path, "r", encoding="utf-8") as f: lines = f.readlines()
-                    
-                    for line in lines:
-                        query = line.strip()
-                        if not query: continue
-                        try:
-                            results = await searcher.search(query)
-                            if results:
-                                video_id = results[0]['id']
-                                class FakeMessage:
-                                    def __init__(self):
-                                        class FakeChat: id = BACKUP_CHAT_ID
-                                        self.chat = FakeChat()
-                                        self.id = 0
-                                await process_download(app, FakeMessage(), video_id, Config.OWNER_ID)
-                        except Exception as ie:
-                            logger.error(f"Fallo en ingestor para '{query}': {ie}")
-                        await asyncio.sleep(3)
-                    os.remove(file_path)
-                    logger.info(f"[ OK ] Lista {file_name} ingerida en la caché.")
-        except Exception as e: logger.error(f"Error en FolderWatcher: {e}")
-        await asyncio.sleep(5)
+def make_progress_bar(percentage: float) -> str:
+    percentage = max(0, min(100, percentage))
+    blocks = int(percentage // 10)
+    return "▰" * blocks + "▱" * (10 - blocks)
 
-# --- SCRIPT DE BARRA DE PROGRESO UX ANIMADA ---
-def make_progress_bar(percentage):
-    blocks = int(percentage / 10)
-    bar = "▰" * blocks + "▱" * (10 - blocks)
-    return bar
 
-# --- BÚSQUEDA MODO INLINE (COMPARTIR EN CUALQUIER CHAT) ---
 @app.on_inline_query()
 async def inline_search_handler(client, inline_query: InlineQuery):
     query = inline_query.query.strip()
-    if not query: return
-    if db.is_user_banned(inline_query.from_user.id): return
-
+    if not query or db.is_user_banned(inline_query.from_user.id):
+        return
     try:
-        results = await searcher.search(query)
-        inline_results = []
-        
-        for song in results[:8]:
-            inline_results.append(
-                InlineQueryResultArticle(
-                    title=song['title'],
-                    description=f"Canal: {song.get('uploader', 'YouTube')}",
-                    input_message_content=InputTextMessageContent(
-                        message_text=f"🎵 **{song['title']}**\n\n💡 _Para descargar esta canción, copia el título, entra a nuestro chat privado y pégalo directamente en el buscador._"
-                    ),
-                    thumb_url="https://cdn-icons-png.flaticon.com/512/3043/3043663.png"
-                )
-            )
-        await inline_query.answer(inline_results, cache_time=5)
-    except Exception as e:
-        logger.error(f"Error en buscador inline: {e}")
+        resolved = await link_resolver.resolve(query)
+        results = await searcher.search(resolved.query, limit=8)
+        articles = [InlineQueryResultArticle(
+            title=song["title"],
+            description=f"Canal: {song.get('uploader', 'YouTube')}",
+            input_message_content=InputTextMessageContent(
+                message_text=f"🎵 **{song['title']}**\n\nAbre @AudioFz_bot para descargarla."
+            ),
+        ) for song in results]
+        await inline_query.answer(articles, cache_time=10)
+    except Exception:
+        logger.exception("Falló la búsqueda inline")
 
-# --- KEYBOARDS ---
+
 def create_search_keyboard(results, page, user_id):
     start = (page - 1) * 5
-    end = start + 5
-    current_results = results[start:end]
-
-    keyboard = []
-    for song in current_results:
-        keyboard.append([InlineKeyboardButton(f"🎵 {song['title']}", callback_data=f"dl_{song['id']}")])
-
-    # Botones de ordenamiento y filtrado que activarán tu lógica en callbacks.py
-    keyboard.append([
-        InlineKeyboardButton("❓ Lossless", callback_data="toggle_lossless"),
-        InlineKeyboardButton("🎵 Title", callback_data="toggle_filter")
-    ])
-
-    keyboard.append([
-        InlineKeyboardButton("⬅️ Ant.", callback_data=f"pg_{page-1}"),
-        InlineKeyboardButton("❌ Cancelar", callback_data="close_search"),
-        InlineKeyboardButton("➡️ Sig.", callback_data=f"pg_{page+1}")
-    ])
+    keyboard = [[InlineKeyboardButton(
+        f"🎵 {song['title']}", callback_data=f"dl_{song['id']}"
+    )] for song in results[start:start + 5]]
+    keyboard.append([InlineKeyboardButton("↕ Ordenar", callback_data="toggle_filter")])
+    navigation = []
+    if page > 1:
+        navigation.append(InlineKeyboardButton("⬅ Anterior", callback_data=f"pg_{page - 1}"))
+    navigation.append(InlineKeyboardButton("✕ Cerrar", callback_data="close_search"))
+    if start + 5 < len(results):
+        navigation.append(InlineKeyboardButton("Siguiente ➡", callback_data=f"pg_{page + 1}"))
+    keyboard.append(navigation)
     return InlineKeyboardMarkup(keyboard)
 
+
 async def send_search_results(message, query, results, page=1, user_id=None):
-    markup = create_search_keyboard(results, page, user_id)
-    await message.reply_text(f"🔎 Resultados para: **{query}**\n📄 Página {page}", reply_markup=markup)
+    await message.reply_text(
+        f"🔎 Resultados para: **{query}**\nPágina {page}",
+        reply_markup=create_search_keyboard(results, page, user_id),
+    )
+
 
 async def edit_search_results(message, query, results, page=1, user_id=None):
-    if page < 1 or (page - 1) * 5 >= len(results): return
-    markup = create_search_keyboard(results, page, user_id)
-
+    if page < 1 or (page - 1) * 5 >= len(results):
+        return
     try:
-        await message.edit_text(f"🔎 Resultados para: **{query}**\n📄 Página {page}", reply_markup=markup)
-    
-    except Exception as e:
-        # Si el error es justamente que el mensaje no cambió, no hacemos nada
-        if "MESSAGE_NOT_MODIFIED" in str(e):
-            return
-        # Si es otro error diferente, sí lo registramos en los logs
-        else:
-            logger.error(f"Error editando resultados: {e}")
+        await message.edit_text(
+            f"🔎 Resultados para: **{query}**\nPágina {page}",
+            reply_markup=create_search_keyboard(results, page, user_id),
+        )
+    except RPCError as error:
+        if "MESSAGE_NOT_MODIFIED" not in str(error):
+            logger.warning("No se pudo cambiar la página de resultados: %s", error)
 
-# --- PROCESADOR DE DESCARGA CON NUEVO DISEÑO DE BARRA ---
+
+async def _progress_updater(status, queue: asyncio.Queue):
+    last_bucket = -1
+    while True:
+        percentage, stage = await queue.get()
+        if percentage < 0:
+            return
+        bucket = int(percentage // 10)
+        if bucket == last_bucket and stage == "download":
+            continue
+        last_bucket = bucket
+        visible = 15 + percentage * 0.65 if stage == "download" else 82
+        label = "Descargando audio" if stage == "download" else "Convirtiendo a MP3"
+        try:
+            await status.edit_text(f"📥 **{label}**\n{make_progress_bar(visible)} {visible:.0f}%")
+        except RPCError:
+            pass
+
+
 async def process_download(client, message, video_id, user_id):
     status = None
+    file_path = None
+    progress_task = None
+    username = user_results.get(user_id, {}).get("username", "Usuario")
+    lock = download_locks[video_id]
+    queued = True
+    active = False
+    runtime_state["queue_depth"] += 1
     try:
-        # 1. Verificación rápida en Caché Local
-        cached_data = db.get_cached_file(video_id)
-        if cached_data:
-            file_id, title = cached_data
-            if message.id != 0: 
-                status = await client.send_message(message.chat.id, "⚡ **Encontrado... Enviando audio**")
-            await client.send_audio(message.chat.id, audio=file_id, caption=f"🎵 {title}")
-            db.register_download(user_id, "User", video_id, title)
-            if message.id != 0 and status: await status.delete()
-            return
-
-        # 2. Descarga fluida de YouTube con diseño de barra solicitado
-        if message.id != 0: 
-            status = await client.send_message(message.chat.id, f"📥 **Iniciando descarga** ({make_progress_bar(10)}) 10%")
-
-        query_fallback = video_id
-        if user_id in user_results:
-            for song in user_results[user_id]["results"]:
-                if song['id'] == video_id:
-                    query_fallback = song['title']
-                    break
-
-        if status:
-            await asyncio.sleep(0.7)
-            await status.edit_text(f"📥 **Descargando Audio** ({make_progress_bar(40)}) 40%")
-            await asyncio.sleep(0.7)
-            await status.edit_text(f"📥**Procesando frecuencias de Audio** ({make_progress_bar(75)})75%")
-
-        file_path, title = await engine.download(f"https://www.youtube.com/watch?v={video_id}", query_fallback)
-        
-        if status: 
-            await status.edit_text(f"📤 **Subiendo archivo a Telegram** ({make_progress_bar(95)}) 95%")
-            
-        thumb_path = file_path.rsplit('.', 1)[0] + ".jpg"
-        actual_thumb = thumb_path if os.path.exists(thumb_path) else None
-
-        sent_audio = await client.send_audio(
-            chat_id=message.chat.id, audio=file_path, thumb=actual_thumb, title=title, caption=f"🎵 {title}",
-            reply_markup=InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton("🔄 Compartir con amigos", switch_inline_query=f"{title}"),
-                    InlineKeyboardButton("🗑 Eliminar", callback_data="del_audio")
-                ]
-            ])
-        )
-
-        db.register_download(user_id, "User", video_id, title)
-        db.add_to_cache(video_id, sent_audio.audio.file_id, title)
-        
-        if status: await status.delete()
-        if os.path.exists(file_path): os.remove(file_path)
-        if actual_thumb and os.path.exists(actual_thumb): os.remove(actual_thumb)
-            
-        # Panel dura 2 horas flotando activo antes de borrarse
-        if message.id != 0:
-            async def auto_delete_panel(msg, uid):
-                await asyncio.sleep(7200)
+        async with lock:
+            runtime_state["queue_depth"] = max(0, runtime_state["queue_depth"] - 1)
+            queued = False
+            cached = db.get_cached_file(video_id)
+            if cached:
+                file_id, title = cached
+                if message.id:
+                    status = await client.send_message(
+                        message.chat.id, f"⚡ **Entregando desde caché**\n{make_progress_bar(95)} 95%"
+                    )
                 try:
-                    await msg.delete()
-                    user_results.pop(uid, None)
-                except Exception: pass
-            asyncio.create_task(auto_delete_panel(message, user_id))
-            
-    except Exception as e:
-        logger.exception(f"Error procesando la descarga de {video_id}: {e}")
+                    await client.send_audio(message.chat.id, file_id, caption=f"🎵 {title}")
+                    db.register_download(user_id, username, video_id, title, cache_hit=True)
+                    if status:
+                        await status.delete()
+                    return True
+                except RPCError:
+                    logger.warning("file_id inválido para %s; se regenerará la caché", video_id)
+                    db.remove_cached_file(video_id)
+
+            status = await client.send_message(
+                message.chat.id, f"⏳ **En cola**\n{make_progress_bar(5)} 5%"
+            ) if message.id and not status else status
+            if status:
+                await status.edit_text(f"⏳ **En cola**\n{make_progress_bar(5)} 5%")
+            async with download_slots:
+                runtime_state["active_downloads"] += 1
+                active = True
+                if status:
+                    await status.edit_text(f"🔎 **Preparando pista**\n{make_progress_bar(12)} 12%")
+                loop = asyncio.get_running_loop()
+                progress_queue = asyncio.Queue()
+                if status:
+                    progress_task = asyncio.create_task(_progress_updater(status, progress_queue))
+
+                def progress(value, stage):
+                    loop.call_soon_threadsafe(progress_queue.put_nowait, (value, stage))
+
+                query = next((song["title"] for song in user_results.get(user_id, {}).get("results", [])
+                              if song["id"] == video_id), video_id)
+                file_path, title = await engine.download(
+                    f"https://www.youtube.com/watch?v={video_id}", query, progress
+                )
+                if progress_task:
+                    await progress_queue.put((-1, "done"))
+                    await progress_task
+                    progress_task = None
+                if status:
+                    await status.edit_text(f"📤 **Subiendo a Telegram**\n{make_progress_bar(92)} 92%")
+                sent = await client.send_audio(
+                    message.chat.id, audio=file_path, title=title, caption=f"🎵 {title}",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🔄 Compartir", switch_inline_query=title),
+                        InlineKeyboardButton("🗑 Eliminar", callback_data="del_audio"),
+                    ]]),
+                )
+                db.add_to_cache(video_id, sent.audio.file_id, title)
+                db.register_download(user_id, username, video_id, title, cache_hit=False)
+                if status:
+                    await status.edit_text(f"✅ **Completado**\n{make_progress_bar(100)} 100%")
+                    await asyncio.sleep(1)
+                    await status.delete()
+                return True
+    except Exception as error:
+        logger.exception("Error procesando %s", video_id)
+        db.register_failure(video_id, user_id, type(error).__name__, str(error))
         if status:
             try:
-                await status.edit_text("❌ **Error: Esta pista no se encuentra disponible actualmente.**")
-            except Exception:
-                logger.exception("No se pudo actualizar el mensaje de error de descarga.")
-        return None
+                await status.edit_text("❌ No se pudo descargar esta pista. Intenta otro resultado.")
+            except RPCError:
+                pass
+        if Config.AUTO_UPDATE_YTDLP and await update_supervisor.record_failure(error):
+            await client.send_message(Config.OWNER_ID, "♻️ yt-dlp fue actualizado. Reiniciando AllMusic…")
+            update_supervisor.restart_process()
+        return False
+    finally:
+        if queued:
+            runtime_state["queue_depth"] = max(0, runtime_state["queue_depth"] - 1)
+        if active:
+            runtime_state["active_downloads"] = max(0, runtime_state["active_downloads"] - 1)
+        if progress_task:
+            progress_task.cancel()
+        if file_path and os.path.isfile(file_path):
+            os.remove(file_path)
+        engine.cleanup(video_id)
+        if not lock.locked():
+            download_locks.pop(video_id, None)
+
+
+async def periodic_top_loop(client):
+    interval = Config.TOP_BROADCAST_INTERVAL_HOURS * 3600
+    await asyncio.sleep(interval)
+    while True:
+        top = db.get_top_songs(10)
+        if top:
+            lines = ["🏆 **Top global de AllMusic**", ""] + [
+                f"{index}. **{title}** — {count}" for index, (title, count) in enumerate(top, 1)
+            ]
+            text = "\n".join(lines)
+            for user_id in db.list_active_user_ids():
+                try:
+                    await client.send_message(user_id, text)
+                except RPCError:
+                    pass
+                await asyncio.sleep(0.05)
+        await asyncio.sleep(interval)
+
+
+async def session_cleanup_loop():
+    while True:
+        await asyncio.sleep(300)
+        cutoff = asyncio.get_running_loop().time() - Config.USER_SESSION_TTL
+        expired = [user_id for user_id, data in user_results.items()
+                   if data.get("created_at", 0) < cutoff]
+        for user_id in expired:
+            user_results.pop(user_id, None)
+
 
 init_admin_handlers(app, db)
-init_users_handlers(app, db, searcher, user_results, send_search_results, process_download)
+init_users_handlers(
+    app, db, searcher, link_resolver, user_results,
+    send_search_results, process_download,
+)
 init_callbacks_handlers(app, db, user_results, edit_search_results, process_download)
 
-# Dashboard básico que lee de tu base de datos
-async def dashboard_handler(request):
-    total_users = db.get_total_users()
-    total_downloads = db.get_total_downloads()
-    return web.Response(
-        text=f"📊 ESTADÍSTICAS DEL BOT\n\nUsuarios totales: {total_users}\nDescargas totales: {total_downloads}",
-        content_type='text/plain'
-    )
 
 async def main():
     Config.validate()
     runner = None
-
+    background_tasks = []
     try:
         await app.start()
-        logger.info("[ OK ] Bot iniciado exitosamente. Esperando mensajes...")
-
-        web_app = web.Application()
-        web_app.router.add_get('/', dashboard_handler)
-        runner = web.AppRunner(web_app)
+        runtime_state["bot_online"] = True
+        logger.info("AllMusic iniciado. Esperando mensajes.")
+        dashboard = DashboardServer(db, runtime_state)
+        runner = web.AppRunner(dashboard.create_app())
         await runner.setup()
-        site = web.TCPSite(runner, '0.0.0.0', 8080)
-        await site.start()
-        logger.info("🌐 Servidor web iniciado en puerto 8080")
-
+        await web.TCPSite(runner, Config.WEB_HOST, Config.WEB_PORT).start()
+        logger.info("Dashboard disponible en %s:%s", Config.WEB_HOST, Config.WEB_PORT)
+        if Config.TOP_BROADCAST_ENABLED:
+            background_tasks.append(asyncio.create_task(periodic_top_loop(app)))
+        background_tasks.append(asyncio.create_task(session_cleanup_loop()))
         await asyncio.Event().wait()
     finally:
+        runtime_state["bot_online"] = False
+        for task in background_tasks:
+            task.cancel()
         if runner:
             await runner.cleanup()
         if app.is_connected:
             await app.stop()
+        db.close()
+
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    asyncio.get_event_loop().run_until_complete(main())

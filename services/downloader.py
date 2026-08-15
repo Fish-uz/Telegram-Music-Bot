@@ -1,146 +1,97 @@
-"""
-Módulo encargado de la descarga y procesamiento de audio desde múltiples fuentes.
-Utiliza yt-dlp como motor principal y FFmpeg para la conversión de formatos.
-"""
-import os
+"""Descarga de audio de YouTube con progreso y nombres resistentes a colisiones."""
+
+from __future__ import annotations
+
 import asyncio
-import yt_dlp
 import logging
+import os
 import shutil
-from typing import Tuple
+from pathlib import Path
+from typing import Callable
+
+import yt_dlp
+
+ProgressHook = Callable[[float, str], None]
+
 
 class MusicDownloader:
-
     def __init__(self, download_dir: str, cookies_path: str):
-        # Logger específico para el módulo de descargas
         self.logger = logging.getLogger("downloader")
-        self.download_dir = download_dir
+        self.download_dir = Path(download_dir)
         self.cookies_path = cookies_path
+        self.download_dir.mkdir(parents=True, exist_ok=True)
 
-        # Garantiza que el directorio de descargas exista al iniciar el servicio
-        if not os.makedirs(self.download_dir, exist_ok=True):
-            self.logger.debug(f"Directorio verificado: {self.download_dir}")
+    async def download(self, url: str, query: str, progress: ProgressHook | None = None):
+        self.logger.info("Iniciando descarga: %s", query)
+        try:
+            return await asyncio.to_thread(self._sync_download_youtube, url, progress)
+        except Exception as error:
+            self.logger.warning("Descarga de YouTube fallida: %s", str(error)[:300])
+            raise
 
-    # --- LÓGICA DE RENOMBRADO SEGURO ---
-    def _sanitize_and_rename(self, current_path: str, title: str) -> str:
-
-        # Limpiar caracteres prohibidos para sistemas de archivos
-        clean_title = "".join([c for c in title if c.isalnum() or c in (' ', '-', '_')]).strip()
-        new_path = os.path.join(self.download_dir, f"{clean_title}.mp3")
-
-        # Renombrar el archivo
-        if os.path.exists(current_path):
-            os.replace(current_path, new_path)
-
-        return new_path
-
-    async def download(self, url: str, query: str) -> Tuple[str, str]:
-        """
-        Contrato principal de descarga. Intenta obtener el audio usando una lista
-        priorizada de métodos YouTube
-        """
-        methods = [
-            (self._sync_download_youtube, url),
-        ]
-
-        self.logger.info(f"--- Iniciando proceso de descarga para: '{query}' ---")
-
-        for method, target in methods:
-            method_name = method.__name__.replace('_sync_download_', '').upper()
-
-            try:
-
-                self.logger.info(f"Ejecutando Flujo [{method_name}] con objetivo: {target}")
-
-                # Ejecución en hilo separado para no bloquear el bucle de eventos del bot
-                file_path, title = await asyncio.to_thread(method, target)
-
-                self.logger.info(f"✅ Descarga exitosa vía [{method_name}]: {title}")
-
-                return file_path, title
-
-            except Exception as e:
-                # Log detallado del error antes de saltar al siguiente método
-                self.logger.warning(f"El método [{method_name}] falló. Razón: {str(e)[:150]}")
-                continue
-
-        # Si el bucle termina sin un 'return', significa que todo falló
-        self.logger.critical(f"fallo total: No se pudo descargar '{query}'.")
-        raise Exception("Todos los servicios de descarga fallaron.")
-
-    # --- MÉTODOS PRIVADOS (LÓGICA SÍNCRONA DE YT-DLP) ---
-    def _get_common_opts(self, out_prefix: str) -> dict:
+    def _get_common_opts(self, progress: ProgressHook | None = None) -> dict:
         ffmpeg_bin = shutil.which("ffmpeg")
-       
-        if ffmpeg_bin is None:
-            raise RuntimeError("FFmpeg no ha sido encontrado en el sistema.")
+        if not ffmpeg_bin:
+            raise RuntimeError("FFmpeg no está instalado o no está disponible en PATH.")
 
-        else:
-            self.logger.debug(f"FFmpeg encontrado en: {ffmpeg_bin}")
+        runtimes = {}
+        if shutil.which("deno"):
+            runtimes["deno"] = {}
+        elif shutil.which("node"):
+            runtimes["node"] = {}
+
+        def hook(data):
+            if not progress:
+                return
+            status = data.get("status")
+            if status == "downloading":
+                total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
+                downloaded = data.get("downloaded_bytes") or 0
+                percentage = (downloaded / total * 100) if total else 0
+                progress(percentage, "download")
+            elif status == "finished":
+                progress(100, "convert")
 
         opts = {
-            # 1. Calidad y Formato
-            'format': 'bestaudio/best',
-            'outtmpl': f'{self.download_dir}/{out_prefix}_%(id)s.%(ext)s',
-           
-            # 2. Autenticación y Red (Vital para Railway)
-            'source_address': '0.0.0.0',
-            'nocheckcertificate': True,
-            'ffmpeg_location': ffmpeg_bin,
-            # YouTube requiere resolver desafíos JavaScript modernos. Node está
-            # instalado localmente y debe habilitarse explícitamente en yt-dlp.
-            'js_runtimes': {'node': {}},
-
-            # 3. Post-procesamiento (Audio + Carátula)
-            'postprocessors': [
-                {
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '192',
-                },
-
-                {
-
-                    'key': 'EmbedThumbnail',
-                }
-
-            ],
-
-            # 4. Limpieza de Logs y Errores
-            'quiet': True,
-            'no_warnings': True,
-            'ignoreerrors': False,
-            'logtostderr': False,
-            'default_search': 'auto',
+            "format": "bestaudio[acodec!=none]/best[acodec!=none]",
+            "outtmpl": str(self.download_dir / "yt_%(id)s.%(ext)s"),
+            "source_address": "0.0.0.0",
+            "nocheckcertificate": True,
+            "ffmpeg_location": ffmpeg_bin,
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"
+            }],
+            "progress_hooks": [hook],
+            "quiet": True,
+            "no_warnings": True,
+            "ignoreerrors": False,
+            "noplaylist": True,
         }
-
+        if runtimes:
+            opts["js_runtimes"] = runtimes
         if self.cookies_path and os.path.isfile(self.cookies_path):
-            opts['cookiefile'] = self.cookies_path
+            opts["cookiefile"] = self.cookies_path
         else:
-            self.logger.warning(
-                "No se encontró un archivo de cookies; se intentará la descarga sin cookies."
-            )
-
+            self.logger.warning("Cookies de YouTube no disponibles; se intentará acceso anónimo.")
         return opts
 
-    def _sync_download_youtube(self, url_or_query: str) -> Tuple[str, str]:
+    def _sync_download_youtube(self, url: str, progress: ProgressHook | None):
+        with yt_dlp.YoutubeDL(self._get_common_opts(progress)) as ydl:
+            info = ydl.extract_info(url, download=True)
+            if not info:
+                raise RuntimeError("YouTube no devolvió información descargable.")
+            if "entries" in info:
+                info = next((entry for entry in info["entries"] if entry), None)
+            if not info:
+                raise RuntimeError("La búsqueda no devolvió una pista válida.")
+            video_id = info["id"]
+            output = self.download_dir / f"yt_{video_id}.mp3"
+            if not output.is_file():
+                raise FileNotFoundError(f"FFmpeg no generó el MP3 esperado: {output}")
+            return str(output), info.get("title") or video_id
 
-        """Descarga desde YouTube usando link o búsqueda interna."""
-
-        opts = self._get_common_opts("yt")
-        target = url_or_query
-
-        if not url_or_query.startswith("http"):
-            target = f"ytsearch1:{url_or_query}"
-
-        self.logger.debug(f"Extrayendo info de YouTube: {target}")
-
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(target, download=True)
-
-            if 'entries' in info:
-                info = info['entries'][0]
-
-            filename = ydl.prepare_filename(info).rsplit('.', 1)[0] + ".mp3"
-            clean_filename = self._sanitize_and_rename(filename, info['title'])
-            return clean_filename, info['title']
+    def cleanup(self, video_id: str) -> None:
+        """Elimina fragmentos y formatos intermedios pertenecientes a una pista."""
+        for candidate in self.download_dir.glob(f"yt_{video_id}.*"):
+            if candidate.is_file():
+                candidate.unlink(missing_ok=True)

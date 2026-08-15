@@ -1,51 +1,44 @@
+"""Logging de consola y archivo sin alterar los registros originales."""
+
 import logging
-import sys
 import os
+import sys
 from logging.handlers import RotatingFileHandler
 
-RESET = "\033[0m"
-CYAN = "\033[36m"
-YELLOW = "\033[33m"
-RED = "\033[31m"
-GREEN = "\033[32m"
 
-class CustomFormatter(logging.Formatter):
+class ConsoleFormatter(logging.Formatter):
+    COLORS = {
+        logging.INFO: "\033[36m", logging.WARNING: "\033[33m",
+        logging.ERROR: "\033[31m", logging.CRITICAL: "\033[31m",
+    }
+
     def format(self, record):
-        if record.levelno == logging.INFO:
-            prefix = f"{CYAN}[INFO]{RESET}"
-        elif record.levelno == logging.WARNING:
-            prefix = f"{YELLOW}[WARN]{RESET}"
-        elif record.levelno == logging.ERROR or record.levelno == logging.CRITICAL:
-            prefix = f"{RED}[ERROR]{RESET}"
-        else:
-            prefix = f"[{record.levelname}]"
+        color = self.COLORS.get(record.levelno, "")
+        reset = "\033[0m" if color else ""
+        message = super().format(record)
+        return f"{color}[{record.levelname}]{reset} {message}"
 
-        record.msg = f"{prefix} {record.msg}"
-        return super().format(record)
 
-def setup_logger():
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+def setup_logger() -> logging.Logger:
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    if getattr(root, "_allmusic_configured", False):
+        return root
+    console = logging.StreamHandler(sys.stdout)
+    console.setFormatter(ConsoleFormatter("%(message)s"))
+    root.addHandler(console)
+    os.makedirs("logs", exist_ok=True)
+    file_handler = RotatingFileHandler(
+        "logs/bot_activity.log", maxBytes=10 * 1024 * 1024,
+        backupCount=5, encoding="utf-8",
+    )
+    file_handler.setFormatter(logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    root.addHandler(file_handler)
+    root._allmusic_configured = True
+    return root
 
-    if not logger.handlers:
-        # 1. Manejador para la Terminal con colores
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setFormatter(CustomFormatter('%(message)s'))
-        logger.addHandler(console_handler)
-
-        # 2. Manejador para Archivo con Auto-Rotación a los 50MB (50 * 1024 * 1024 bytes)
-        os.makedirs("logs", exist_ok=True)
-        file_handler = RotatingFileHandler(
-            "logs/bot_activity.log", 
-            maxBytes=52428800, 
-            backupCount=3, 
-            encoding="utf-8"
-        )
-        # Para el archivo usamos un formato estándar sin códigos de color ANSI
-        file_formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-        file_handler.setFormatter(file_formatter)
-        logger.addHandler(file_handler)
-    
-    return logger
 
 logger = setup_logger()
