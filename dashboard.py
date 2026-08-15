@@ -5,11 +5,13 @@ from __future__ import annotations
 import hmac
 import ipaddress
 import platform
+from datetime import datetime, timezone
 from pathlib import Path
 
 from aiohttp import web
 
 from core.config import Config
+from core.logger import audit_logger
 
 
 class DashboardServer:
@@ -76,8 +78,11 @@ class DashboardServer:
     async def ban_user(self, request):
         user_id = int(request.match_info["user_id"])
         payload = await request.json()
-        banned = bool(payload.get("banned"))
+        banned = payload.get("banned")
+        if not isinstance(banned, bool):
+            raise web.HTTPBadRequest(text="El campo 'banned' debe ser booleano.")
         self.db.set_user_ban(user_id, banned)
+        audit_logger.info("DASHBOARD_%s user_id=%s", "BAN" if banned else "UNBAN", user_id)
         return web.json_response({"ok": True, "user_id": user_id, "banned": banned})
 
     async def songs(self, request):
@@ -87,10 +92,15 @@ class DashboardServer:
         return web.json_response(self.db.list_recent_history())
 
     async def system(self, request):
+        database_size = self.db.db_path.stat().st_size if self.db.db_path.exists() else 0
         return web.json_response({
             "brand": "AllMusic", "bot_online": bool(self.state.get("bot_online")),
             "active_downloads": self.state.get("active_downloads", 0),
             "queue_depth": self.state.get("queue_depth", 0),
             "platform": f"{platform.system()} {platform.release()}",
             "yt_dlp_version": self.state.get("yt_dlp_version", "unknown"),
+            "python_version": platform.python_version(),
+            "database_size_bytes": database_size,
+            "process_id": str(self.state.get("process_id", "—")),
+            "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         })

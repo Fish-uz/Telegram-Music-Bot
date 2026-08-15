@@ -39,3 +39,18 @@ class DashboardTests(AioHTTPTestCase):
         response = await self.client.post("/api/users/1/ban", json={"banned": True})
         self.assertEqual(response.status, 200)
         self.assertTrue(self.db.is_user_banned(1))
+
+        response = await self.client.post("/api/users/1/ban", json={"banned": False})
+        self.assertEqual(response.status, 200)
+        self.assertFalse(self.db.is_user_banned(1))
+
+    async def test_ban_action_rejects_invalid_state(self):
+        response = await self.client.post("/api/users/1/ban", json={"banned": "false"})
+        self.assertEqual(response.status, 400)
+
+    async def test_system_exposes_useful_diagnostics(self):
+        response = await self.client.get("/api/system")
+        data = await response.json()
+        self.assertIn("python_version", data)
+        self.assertIn("database_size_bytes", data)
+        self.assertIn("checked_at", data)

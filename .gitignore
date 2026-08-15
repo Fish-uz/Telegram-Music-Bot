@@ -36,6 +36,7 @@ downloads/
 *.webm
 *.jpg
 *.jpeg
+!frontend/Logo.jpeg
 *.png
 
 # Docker (Archivos generados localmente)
