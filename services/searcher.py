@@ -25,7 +25,7 @@ class MusicSearcher:
             opts["js_runtimes"] = {"node": {}}
         return opts
 
-    async def search(self, query: str, limit: int = 15):
+    async def search(self, query: str, limit: int = 100):
         query = " ".join(query.split())[:200]
         if not query:
             return []

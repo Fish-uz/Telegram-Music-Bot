@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import bot
+from core.config import Config
 from database.manager import DatabaseManager
 
 
@@ -70,3 +71,17 @@ class BotFlowTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(os.path.exists(path))
         finally:
             bot.engine = original
+
+    async def test_search_navigation_reaches_page_twenty(self):
+        results = [{"id": str(index), "title": f"Pista {index}"} for index in range(100)]
+        keyboard = bot.create_search_keyboard(results, 20, 7).inline_keyboard
+        labels = [button.text for row in keyboard for button in row]
+
+        self.assertEqual(Config.SEARCH_RESULTS_LIMIT, 100)
+        self.assertEqual(len(keyboard) - 2, 5)
+        self.assertIn("⬅ Anterior", labels)
+        self.assertNotIn("Siguiente ➡", labels)
+
+    async def test_log_values_cannot_insert_extra_lines(self):
+        self.assertEqual(bot._log_value("Canción\n  oficial\tHD"), "Canción oficial HD")
+        self.assertEqual(len(bot._log_value("x" * 200)), 120)

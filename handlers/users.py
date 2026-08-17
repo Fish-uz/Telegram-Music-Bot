@@ -157,7 +157,7 @@ async def handle_message(client, message):
             return await status.edit_text("No encontramos resultados. Prueba con artista y título.")
         user_results[user.id] = {
             "query": resolved.query, "source": resolved.source, "results": results,
-            "filter": "title", "username": user.username or user.first_name,
+            "filter": "title", "username": user.username,
             "created_at": time.monotonic(),
         }
         logger.info("Búsqueda completada · user=%s results=%s", user.id, len(results))

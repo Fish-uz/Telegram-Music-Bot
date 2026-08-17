@@ -29,8 +29,14 @@ async def handle_callbacks(client, callback_query):
             await callback_query.message.delete()
         elif data.startswith("dl_"):
             await callback_query.answer("Preparando descarga…")
+            video_id = data.removeprefix("dl_")
+            selected_title = next(
+                (song.get("title") for song in info["results"] if song.get("id") == video_id),
+                video_id,
+            )
             asyncio.create_task(process_download(
-                client, callback_query.message, data.removeprefix("dl_"), user_id
+                client, callback_query.message, video_id, user_id,
+                selected_title=selected_title, username=info.get("username"),
             ))
         elif data == "toggle_filter":
             field = "uploader" if info.get("filter") == "title" else "title"

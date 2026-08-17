@@ -12,5 +12,6 @@ services:
     volumes:
       - ./database:/app/database
       - ./downloads:/app/downloads
+      - ./logs:/app/logs
       - ./sessions:/app/sessions
       - ./youtube_cookies.txt:/app/youtube_cookies.txt:ro

@@ -38,7 +38,8 @@ class Config:
     DASHBOARD_TOKEN = os.getenv("DASHBOARD_TOKEN", "").strip()
 
     MAX_SIMULTANEOUS_DOWNLOADS = max(1, _integer("MAX_SIMULTANEOUS_DOWNLOADS", 3))
-    SEARCH_RESULTS_LIMIT = max(5, min(30, _integer("SEARCH_RESULTS_LIMIT", 15)))
+    # Cinco resultados por página: 100 resultados permiten navegar hasta 20 páginas.
+    SEARCH_RESULTS_LIMIT = max(5, min(100, _integer("SEARCH_RESULTS_LIMIT", 100)))
     PLAYLIST_LIMIT = max(1, min(20, _integer("PLAYLIST_LIMIT", 10)))
     USER_SESSION_TTL = max(300, _integer("USER_SESSION_TTL", 7200))
     BACKUP_CHAT_ID = _integer("BACKUP_CHAT_ID", 0)

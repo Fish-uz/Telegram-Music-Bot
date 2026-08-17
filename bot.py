@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import time
 from collections import defaultdict
@@ -72,35 +73,40 @@ async def inline_search_handler(client, inline_query: InlineQuery):
         logger.exception("Falló la búsqueda inline")
 
 
+RESULTS_PER_PAGE = 5
+
+
 def create_search_keyboard(results, page, user_id):
-    start = (page - 1) * 5
+    start = (page - 1) * RESULTS_PER_PAGE
     keyboard = [[InlineKeyboardButton(
         f"🎵 {song['title']}", callback_data=f"dl_{song['id']}"
-    )] for song in results[start:start + 5]]
+    )] for song in results[start:start + RESULTS_PER_PAGE]]
     keyboard.append([InlineKeyboardButton("↕ Ordenar", callback_data="toggle_filter")])
     navigation = []
     if page > 1:
         navigation.append(InlineKeyboardButton("⬅ Anterior", callback_data=f"pg_{page - 1}"))
     navigation.append(InlineKeyboardButton("✕ Cerrar", callback_data="close_search"))
-    if start + 5 < len(results):
+    if start + RESULTS_PER_PAGE < len(results):
         navigation.append(InlineKeyboardButton("Siguiente ➡", callback_data=f"pg_{page + 1}"))
     keyboard.append(navigation)
     return InlineKeyboardMarkup(keyboard)
 
 
 async def send_search_results(message, query, results, page=1, user_id=None):
+    total_pages = max(1, math.ceil(len(results) / RESULTS_PER_PAGE))
     await message.reply_text(
-        f"🔎 Resultados para: **{query}**\nPágina {page}",
+        f"🔎 Resultados para: **{query}**\nPágina {page} de {total_pages}",
         reply_markup=create_search_keyboard(results, page, user_id),
     )
 
 
 async def edit_search_results(message, query, results, page=1, user_id=None):
-    if page < 1 or (page - 1) * 5 >= len(results):
+    if page < 1 or (page - 1) * RESULTS_PER_PAGE >= len(results):
         return
+    total_pages = max(1, math.ceil(len(results) / RESULTS_PER_PAGE))
     try:
         await message.edit_text(
-            f"🔎 Resultados para: **{query}**\nPágina {page}",
+            f"🔎 Resultados para: **{query}**\nPágina {page} de {total_pages}",
             reply_markup=create_search_keyboard(results, page, user_id),
         )
     except RPCError as error:
@@ -126,17 +132,35 @@ async def _progress_updater(status, queue: asyncio.Queue):
             pass
 
 
-async def process_download(client, message, video_id, user_id):
+def _log_value(value, fallback="-"):
+    """Convierte datos externos en un campo de log breve y de una sola línea."""
+    normalized = " ".join(str(value or fallback).split())
+    return normalized[:120]
+
+
+async def process_download(
+    client, message, video_id, user_id, selected_title=None, username=None
+):
     started_at = time.monotonic()
     status = None
     file_path = None
     progress_task = None
-    username = user_results.get(user_id, {}).get("username", "Usuario")
+    result_info = user_results.get(user_id, {})
+    username = username or result_info.get("username")
+    selected_title = selected_title or next(
+        (song.get("title") for song in result_info.get("results", []) if song.get("id") == video_id),
+        video_id,
+    )
+    log_username = f"@{_log_value(username)}" if username else "-"
+    log_title = _log_value(selected_title)
     lock = download_locks[video_id]
     queued = True
     active = False
     runtime_state["queue_depth"] += 1
-    logger.info("Solicitud en cola · user=%s video=%s", user_id, video_id)
+    logger.info(
+        "Solicitud en cola · user_id=%s username=%s title=%r video=%s",
+        user_id, log_username, log_title, video_id,
+    )
     try:
         async with lock:
             runtime_state["queue_depth"] = max(0, runtime_state["queue_depth"] - 1)
@@ -152,8 +176,9 @@ async def process_download(client, message, video_id, user_id):
                     await client.send_audio(message.chat.id, file_id, caption=f"🎵 {title}")
                     db.register_download(user_id, username, video_id, title, cache_hit=True)
                     logger.info(
-                        "Caché entregada · user=%s video=%s elapsed=%.2fs",
-                        user_id, video_id, time.monotonic() - started_at,
+                        "Caché entregada · user_id=%s username=%s title=%r video=%s elapsed=%.2fs",
+                        user_id, log_username, log_title, video_id,
+                        time.monotonic() - started_at,
                     )
                     if status:
                         await status.delete()
@@ -180,10 +205,8 @@ async def process_download(client, message, video_id, user_id):
                 def progress(value, stage):
                     loop.call_soon_threadsafe(progress_queue.put_nowait, (value, stage))
 
-                query = next((song["title"] for song in user_results.get(user_id, {}).get("results", [])
-                              if song["id"] == video_id), video_id)
                 file_path, title = await engine.download(
-                    f"https://www.youtube.com/watch?v={video_id}", query, progress
+                    f"https://www.youtube.com/watch?v={video_id}", selected_title, progress
                 )
                 if progress_task:
                     await progress_queue.put((-1, "done"))
@@ -201,8 +224,9 @@ async def process_download(client, message, video_id, user_id):
                 db.add_to_cache(video_id, sent.audio.file_id, title)
                 db.register_download(user_id, username, video_id, title, cache_hit=False)
                 logger.info(
-                    "Descarga entregada · user=%s video=%s elapsed=%.2fs",
-                    user_id, video_id, time.monotonic() - started_at,
+                    "Descarga entregada · user_id=%s username=%s title=%r video=%s elapsed=%.2fs",
+                    user_id, log_username, log_title, video_id,
+                    time.monotonic() - started_at,
                 )
                 if status:
                     await status.edit_text(f"✅ **Completado**\n{make_progress_bar(100)} 100%")
@@ -211,8 +235,8 @@ async def process_download(client, message, video_id, user_id):
                 return True
     except Exception as error:
         logger.exception(
-            "Descarga fallida · user=%s video=%s elapsed=%.2fs",
-            user_id, video_id, time.monotonic() - started_at,
+            "Descarga fallida · user_id=%s username=%s title=%r video=%s elapsed=%.2fs",
+            user_id, log_username, log_title, video_id, time.monotonic() - started_at,
         )
         db.register_failure(video_id, user_id, type(error).__name__, str(error))
         if status:
