@@ -128,7 +128,12 @@ def _allowed(user_id: int) -> bool:
 
 
 async def handle_message(client, message):
+    # Pyrogram puede entregar mensajes salientes al cliente; nunca deben convertirse en búsquedas.
+    if getattr(message, "outgoing", False):
+        return
     user = message.from_user
+    if not user or getattr(user, "is_bot", False):
+        return
     if db.is_user_banned(user.id): return
     menu_actions = {
         "🏆 Top global": show_top, "👤 Mi perfil": show_profile,
@@ -165,7 +170,9 @@ async def handle_message(client, message):
         await send_search_results(message, resolved.query, results, 1, user.id)
     except Exception as error:
         logger.exception("Error buscando %r", message.text)
-        await status.edit_text(f"❌ No se pudo procesar la búsqueda: {str(error)[:120]}")
+        await status.edit_text(
+            "No pudimos completar la búsqueda en este momento. Intenta nuevamente."
+        )
 
 
 async def dashboard_command(client, message):
@@ -190,7 +197,10 @@ def init_users_handlers(app_instance, shared_db, shared_searcher, shared_resolve
         "perfil": show_profile, "historial": show_history, "soporte": support_command,
         "playlist": playlist_download, "dashboard": dashboard_command,
     }
+    inbound_private = filters.private & ~filters.outgoing & ~filters.bot
     for name, handler in commands.items():
-        app_instance.on_message(filters.command(name) & filters.private)(handler)
+        app_instance.on_message(filters.command(name) & inbound_private)(handler)
     excluded = list(commands) + ["admin", "broadcast", "ban", "unban"]
-    app_instance.on_message(filters.text & filters.private & ~filters.command(excluded))(handle_message)
+    app_instance.on_message(
+        filters.text & inbound_private & ~filters.command(excluded)
+    )(handle_message)

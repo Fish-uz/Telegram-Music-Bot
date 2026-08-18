@@ -14,4 +14,5 @@ services:
       - ./downloads:/app/downloads
       - ./logs:/app/logs
       - ./sessions:/app/sessions
-      - ./youtube_cookies.txt:/app/youtube_cookies.txt:ro
+      # yt-dlp renueva y persiste cookies al cerrar cada operación.
+      - ./youtube_cookies.txt:/app/youtube_cookies.txt

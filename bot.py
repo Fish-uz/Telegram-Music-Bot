@@ -132,6 +132,17 @@ async def _progress_updater(status, queue: asyncio.Queue):
             pass
 
 
+async def _safe_status_edit(status, text):
+    """Mantiene el progreso informativo sin permitir que Telegram cancele la descarga."""
+    if not status:
+        return
+    try:
+        await status.edit_text(text)
+    except RPCError as error:
+        if "MESSAGE_NOT_MODIFIED" not in str(error):
+            logger.warning("No se pudo actualizar el progreso: %s", error)
+
+
 def _log_value(value, fallback="-"):
     """Convierte datos externos en un campo de log breve y de una sola línea."""
     normalized = " ".join(str(value or fallback).split())
@@ -170,7 +181,7 @@ async def process_download(
                 file_id, title = cached
                 if message.id:
                     status = await client.send_message(
-                        message.chat.id, f"⚡ **Entregando desde caché**\n{make_progress_bar(95)} 95%"
+                        message.chat.id, f"⚡ **Preparando tu audio**\n{make_progress_bar(95)} 95%"
                     )
                 try:
                     await client.send_audio(message.chat.id, file_id, caption=f"🎵 {title}")
@@ -187,16 +198,18 @@ async def process_download(
                     logger.warning("file_id inválido para %s; se regenerará la caché", video_id)
                     db.remove_cached_file(video_id)
 
-            status = await client.send_message(
-                message.chat.id, f"⏳ **En cola**\n{make_progress_bar(5)} 5%"
-            ) if message.id and not status else status
-            if status:
-                await status.edit_text(f"⏳ **En cola**\n{make_progress_bar(5)} 5%")
+            if message.id and not status:
+                status = await client.send_message(
+                    message.chat.id, f"⏳ **En cola**\n{make_progress_bar(5)} 5%"
+                )
+            else:
+                await _safe_status_edit(status, f"⏳ **En cola**\n{make_progress_bar(5)} 5%")
             async with download_slots:
                 runtime_state["active_downloads"] += 1
                 active = True
-                if status:
-                    await status.edit_text(f"🔎 **Preparando pista**\n{make_progress_bar(12)} 12%")
+                await _safe_status_edit(
+                    status, f"🔎 **Preparando pista**\n{make_progress_bar(12)} 12%"
+                )
                 loop = asyncio.get_running_loop()
                 progress_queue = asyncio.Queue()
                 if status:
@@ -212,8 +225,9 @@ async def process_download(
                     await progress_queue.put((-1, "done"))
                     await progress_task
                     progress_task = None
-                if status:
-                    await status.edit_text(f"📤 **Subiendo a Telegram**\n{make_progress_bar(92)} 92%")
+                await _safe_status_edit(
+                    status, f"📤 **Subiendo a Telegram**\n{make_progress_bar(92)} 92%"
+                )
                 sent = await client.send_audio(
                     message.chat.id, audio=file_path, title=title, caption=f"🎵 {title}",
                     reply_markup=InlineKeyboardMarkup([[
@@ -229,7 +243,9 @@ async def process_download(
                     time.monotonic() - started_at,
                 )
                 if status:
-                    await status.edit_text(f"✅ **Completado**\n{make_progress_bar(100)} 100%")
+                    await _safe_status_edit(
+                        status, f"✅ **Completado**\n{make_progress_bar(100)} 100%"
+                    )
                     await asyncio.sleep(1)
                     await status.delete()
                 return True
@@ -241,7 +257,9 @@ async def process_download(
         db.register_failure(video_id, user_id, type(error).__name__, str(error))
         if status:
             try:
-                await status.edit_text("❌ No se pudo descargar esta pista. Intenta otro resultado.")
+                await _safe_status_edit(
+                    status, "No pudimos preparar esta pista. Prueba con otra opción."
+                )
             except RPCError:
                 pass
         if Config.AUTO_UPDATE_YTDLP and await update_supervisor.record_failure(error):

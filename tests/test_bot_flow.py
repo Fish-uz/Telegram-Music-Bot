@@ -7,19 +7,29 @@ from types import SimpleNamespace
 import bot
 from core.config import Config
 from database.manager import DatabaseManager
+from handlers import users as user_handlers
 
 
 class FakeStatus:
-    async def edit_text(self, text): self.text = text
+    def __init__(self, text=""):
+        self.text = text
+
+    async def edit_text(self, text):
+        if text == self.text:
+            raise AssertionError("No se debe editar un estado con contenido idéntico")
+        self.text = text
+
     async def delete(self): self.deleted = True
 
 
 class FakeClient:
     def __init__(self):
         self.uploads = []
+        self.messages = []
 
     async def send_message(self, chat_id, text):
-        return FakeStatus()
+        self.messages.append(text)
+        return FakeStatus(text)
 
     async def send_audio(self, chat_id, audio, **kwargs):
         self.uploads.append(audio)
@@ -57,6 +67,7 @@ class BotFlowTests(unittest.IsolatedAsyncioTestCase):
         success = await bot.process_download(client, FakeMessage(), "cached", 7)
         self.assertTrue(success)
         self.assertEqual(client.uploads, ["existing-file"])
+        self.assertFalse(any("caché" in text.casefold() for text in client.messages))
         self.assertEqual(bot.db.get_dashboard_stats()["cache_hits"], 1)
 
     async def test_new_download_is_uploaded_and_cached(self):
@@ -85,3 +96,13 @@ class BotFlowTests(unittest.IsolatedAsyncioTestCase):
     async def test_log_values_cannot_insert_extra_lines(self):
         self.assertEqual(bot._log_value("Canción\n  oficial\tHD"), "Canción oficial HD")
         self.assertEqual(len(bot._log_value("x" * 200)), 120)
+
+    async def test_outgoing_messages_never_start_searches(self):
+        message = SimpleNamespace(outgoing=True, from_user=SimpleNamespace(id=8148530554))
+        self.assertIsNone(await user_handlers.handle_message(None, message))
+
+    async def test_messages_from_bots_never_start_searches(self):
+        message = SimpleNamespace(
+            outgoing=False, from_user=SimpleNamespace(id=8148530554, is_bot=True)
+        )
+        self.assertIsNone(await user_handlers.handle_message(None, message))
