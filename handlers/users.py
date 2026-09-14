@@ -20,6 +20,11 @@ request_times = defaultdict(deque)
 user_warnings = defaultdict(int)
 
 
+def _log_text(value) -> str:
+    """Evita saltos de línea y limita búsquedas externas en los logs."""
+    return " ".join(str(value or "-").split())[:160]
+
+
 def _menu():
     return ReplyKeyboardMarkup(
         [[KeyboardButton("🏆 Top global"), KeyboardButton("👤 Mi perfil")],
@@ -149,8 +154,12 @@ async def handle_message(client, message):
             return await message.reply_text("Tu acceso fue bloqueado por solicitudes abusivas.")
         return await message.reply_text("⚠️ Demasiadas solicitudes. Espera unos segundos.")
 
+    flow_started_at = time.monotonic()
     db.register_user(user.id, user.username)
-    logger.info("Búsqueda recibida · user=%s source=message", user.id)
+    logger.info(
+        "Búsqueda recibida · user=%s username=%s query=%r source=message",
+        user.id, f"@{user.username}" if user.username else "-", _log_text(message.text),
+    )
     status = await message.reply_text("🔎 Buscando…")
     try:
         resolved = await resolver.resolve(message.text)
@@ -159,13 +168,24 @@ async def handle_message(client, message):
             await status.edit_text(f"🔗 Enlace de {resolved.source} reconocido. Buscando `{resolved.query}`…")
         results = await searcher.search(resolved.query, Config.SEARCH_RESULTS_LIMIT)
         if not results:
+            logger.warning(
+                "Búsqueda sin resultados · user=%s query=%r resolved=%r source=%s",
+                user.id, _log_text(message.text), _log_text(resolved.query), resolved.source,
+            )
             return await status.edit_text("No encontramos resultados. Prueba con artista y título.")
+        results_ready_at = time.monotonic()
         user_results[user.id] = {
             "query": resolved.query, "source": resolved.source, "results": results,
             "filter": "title", "username": user.username,
-            "created_at": time.monotonic(),
+            "created_at": results_ready_at,
+            "flow_started_at": flow_started_at,
+            "results_ready_at": results_ready_at,
+            "search_elapsed": results_ready_at - flow_started_at,
         }
-        logger.info("Búsqueda completada · user=%s results=%s", user.id, len(results))
+        logger.info(
+            "Búsqueda completada · user=%s query=%r results=%s elapsed=%.2fs",
+            user.id, _log_text(resolved.query), len(results), results_ready_at - flow_started_at,
+        )
         await status.delete()
         await send_search_results(message, resolved.query, results, 1, user.id)
     except Exception as error:

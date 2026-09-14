@@ -1,6 +1,11 @@
 import unittest
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
 
+from services.downloader import MusicDownloader
 from services.link_resolver import MusicLinkResolver
+from services.searcher import MusicSearcher
 from services.update_supervisor import YtDlpUpdateSupervisor
 
 
@@ -23,4 +28,22 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
     def test_update_supervisor_classifies_only_technical_failures(self):
         supervisor = YtDlpUpdateSupervisor()
         self.assertTrue(supervisor.is_recoverable(RuntimeError("HTTP Error 403: Forbidden")))
+        self.assertTrue(supervisor.is_recoverable(RuntimeError("The page needs to be reloaded")))
         self.assertFalse(supervisor.is_recoverable(RuntimeError("Video privado")))
+
+    def test_authenticated_youtube_uses_supported_player_clients(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            cookies = Path(temporary) / "cookies.txt"
+            cookies.write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
+            expected = ["default", "web_embedded"]
+
+            search_opts = MusicSearcher(str(cookies))._options()
+            with patch("services.downloader.shutil.which", return_value="ffmpeg"):
+                download_opts = MusicDownloader(temporary, str(cookies))._get_common_opts()
+
+            self.assertEqual(
+                search_opts["extractor_args"]["youtube"]["player_client"], expected
+            )
+            self.assertEqual(
+                download_opts["extractor_args"]["youtube"]["player_client"], expected
+            )

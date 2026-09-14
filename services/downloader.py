@@ -73,6 +73,11 @@ class MusicDownloader:
             opts["js_runtimes"] = runtimes
         if self.cookies_path and os.path.isfile(self.cookies_path):
             opts["cookiefile"] = self.cookies_path
+            # El cliente autenticado tv_downgraded de YouTube falla de forma
+            # intermitente; estos clientes son el fallback oficial de yt-dlp.
+            opts["extractor_args"] = {
+                "youtube": {"player_client": ["default", "web_embedded"]}
+            }
         else:
             self.logger.warning("Cookies de YouTube no disponibles; se intentará acceso anónimo.")
         return opts

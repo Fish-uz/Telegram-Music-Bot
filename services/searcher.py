@@ -19,6 +19,9 @@ class MusicSearcher:
         opts = {"extract_flat": True, "quiet": True, "no_warnings": True}
         if self.cookies_path and os.path.isfile(self.cookies_path):
             opts["cookiefile"] = self.cookies_path
+            opts["extractor_args"] = {
+                "youtube": {"player_client": ["default", "web_embedded"]}
+            }
         if shutil.which("deno"):
             opts["js_runtimes"] = {"deno": {}}
         elif shutil.which("node"):

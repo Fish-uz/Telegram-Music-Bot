@@ -16,6 +16,7 @@ import yt_dlp
 class YtDlpUpdateSupervisor:
     RECOVERABLE_MARKERS = (
         "http error 403", "signature", "n challenge", "requested format is not available",
+        "the page needs to be reloaded",
         "sign in to confirm", "player response", "unable to download video data",
     )
 

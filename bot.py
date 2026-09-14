@@ -109,7 +109,7 @@ async def edit_search_results(message, query, results, page=1, user_id=None):
             f"🔎 Resultados para: **{query}**\nPágina {page} de {total_pages}",
             reply_markup=create_search_keyboard(results, page, user_id),
         )
-    except RPCError as error:
+    except (RPCError, TimeoutError, OSError) as error:
         if "MESSAGE_NOT_MODIFIED" not in str(error):
             logger.warning("No se pudo cambiar la página de resultados: %s", error)
 
@@ -128,7 +128,7 @@ async def _progress_updater(status, queue: asyncio.Queue):
         label = "Descargando audio" if stage == "download" else "Convirtiendo a MP3"
         try:
             await status.edit_text(f"📥 **{label}**\n{make_progress_bar(visible)} {visible:.0f}%")
-        except RPCError:
+        except (RPCError, TimeoutError, OSError):
             pass
 
 
@@ -138,7 +138,7 @@ async def _safe_status_edit(status, text):
         return
     try:
         await status.edit_text(text)
-    except RPCError as error:
+    except (RPCError, TimeoutError, OSError) as error:
         if "MESSAGE_NOT_MODIFIED" not in str(error):
             logger.warning("No se pudo actualizar el progreso: %s", error)
 
@@ -150,9 +150,14 @@ def _log_value(value, fallback="-"):
 
 
 async def process_download(
-    client, message, video_id, user_id, selected_title=None, username=None
+    client, message, video_id, user_id, selected_title=None, username=None,
+    flow_started_at=None, results_ready_at=None, search_elapsed=None,
 ):
     started_at = time.monotonic()
+    queue_started_at = started_at
+    queue_elapsed = 0.0
+    processing_elapsed = 0.0
+    upload_elapsed = 0.0
     status = None
     file_path = None
     progress_task = None
@@ -174,6 +179,7 @@ async def process_download(
     )
     try:
         async with lock:
+            queue_elapsed = time.monotonic() - queue_started_at
             runtime_state["queue_depth"] = max(0, runtime_state["queue_depth"] - 1)
             queued = False
             cached = db.get_cached_file(video_id)
@@ -184,12 +190,19 @@ async def process_download(
                         message.chat.id, f"⚡ **Preparando tu audio**\n{make_progress_bar(95)} 95%"
                     )
                 try:
+                    upload_started_at = time.monotonic()
                     await client.send_audio(message.chat.id, file_id, caption=f"🎵 {title}")
+                    upload_elapsed = time.monotonic() - upload_started_at
                     db.register_download(user_id, username, video_id, title, cache_hit=True)
+                    finished_at = time.monotonic()
                     logger.info(
-                        "Caché entregada · user_id=%s username=%s title=%r video=%s elapsed=%.2fs",
+                        "Caché entregada · user_id=%s username=%s title=%r video=%s "
+                        "search=%.2fs choice=%.2fs queue=%.2fs upload=%.2fs total=%.2fs",
                         user_id, log_username, log_title, video_id,
-                        time.monotonic() - started_at,
+                        search_elapsed or 0.0,
+                        max(0.0, started_at - results_ready_at) if results_ready_at else 0.0,
+                        queue_elapsed, upload_elapsed,
+                        finished_at - flow_started_at if flow_started_at else finished_at - started_at,
                     )
                     if status:
                         await status.delete()
@@ -205,6 +218,7 @@ async def process_download(
             else:
                 await _safe_status_edit(status, f"⏳ **En cola**\n{make_progress_bar(5)} 5%")
             async with download_slots:
+                queue_elapsed = time.monotonic() - queue_started_at
                 runtime_state["active_downloads"] += 1
                 active = True
                 await _safe_status_edit(
@@ -218,9 +232,11 @@ async def process_download(
                 def progress(value, stage):
                     loop.call_soon_threadsafe(progress_queue.put_nowait, (value, stage))
 
+                processing_started_at = time.monotonic()
                 file_path, title = await engine.download(
                     f"https://www.youtube.com/watch?v={video_id}", selected_title, progress
                 )
+                processing_elapsed = time.monotonic() - processing_started_at
                 if progress_task:
                     await progress_queue.put((-1, "done"))
                     await progress_task
@@ -228,6 +244,7 @@ async def process_download(
                 await _safe_status_edit(
                     status, f"📤 **Subiendo a Telegram**\n{make_progress_bar(92)} 92%"
                 )
+                upload_started_at = time.monotonic()
                 sent = await client.send_audio(
                     message.chat.id, audio=file_path, title=title, caption=f"🎵 {title}",
                     reply_markup=InlineKeyboardMarkup([[
@@ -235,12 +252,18 @@ async def process_download(
                         InlineKeyboardButton("🗑 Eliminar", callback_data="del_audio"),
                     ]]),
                 )
+                upload_elapsed = time.monotonic() - upload_started_at
                 db.add_to_cache(video_id, sent.audio.file_id, title)
                 db.register_download(user_id, username, video_id, title, cache_hit=False)
+                finished_at = time.monotonic()
                 logger.info(
-                    "Descarga entregada · user_id=%s username=%s title=%r video=%s elapsed=%.2fs",
+                    "Descarga entregada · user_id=%s username=%s title=%r video=%s "
+                    "search=%.2fs choice=%.2fs queue=%.2fs process=%.2fs upload=%.2fs total=%.2fs",
                     user_id, log_username, log_title, video_id,
-                    time.monotonic() - started_at,
+                    search_elapsed or 0.0,
+                    max(0.0, started_at - results_ready_at) if results_ready_at else 0.0,
+                    queue_elapsed, processing_elapsed, upload_elapsed,
+                    finished_at - flow_started_at if flow_started_at else finished_at - started_at,
                 )
                 if status:
                     await _safe_status_edit(
